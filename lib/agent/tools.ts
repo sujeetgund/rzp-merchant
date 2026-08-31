@@ -7,7 +7,7 @@ import { products } from "@/lib/db/schema";
 import { addToCart, getHydratedCart, removeFromCart } from "@/lib/cart";
 import { getRecommendations } from "@/lib/agent/recommendations";
 import { logAudit } from "@/lib/agent/audit";
-import { embedText, isLlmConfigured } from "@/lib/llm/client";
+import { embedText, isEmbeddingConfigured } from "@/lib/llm/client";
 import { createCheckoutForSession } from "@/lib/commerce/checkout";
 
 function sessionIdFrom(config: RunnableConfig): string {
@@ -44,7 +44,7 @@ export const searchProductsTool = tool(
       imageUrl: string | null;
     }[];
 
-    const queryEmbedding = isLlmConfigured()
+    const queryEmbedding = isEmbeddingConfigured()
       ? await embedText(query).catch(() => null)
       : null;
 
@@ -94,7 +94,11 @@ export const searchProductsTool = tool(
       }${category ? ` in ${category}` : ""}, found ${results.length} match(es).`,
     });
 
-    return results;
+    if (results.length === 0) {
+      return "No products found matching your search query.";
+    }
+
+    return JSON.stringify(results);
   },
   {
     name: "search_products",
@@ -127,8 +131,8 @@ export const getProductTool = tool(
         : `Product ${input.productId} was not found.`,
     });
 
-    if (!product) return { error: "Product not found" };
-    return {
+    if (!product) return "Product not found.";
+    return JSON.stringify({
       productId: product.id,
       name: product.name,
       description: product.description,
@@ -137,7 +141,7 @@ export const getProductTool = tool(
       inventory: product.inventory,
       imageUrl: product.imageUrl,
       variants: product.variants ?? [],
-    };
+    });
   },
   {
     name: "get_product",
@@ -168,7 +172,11 @@ export const getRecommendationsTool = tool(
         : "No strong co-purchase patterns found for these products yet.",
     });
 
-    return recs;
+    if (recs.length === 0) {
+      return "No co-purchase recommendations found for these products.";
+    }
+
+    return JSON.stringify(recs);
   },
   {
     name: "get_recommendations",
@@ -192,7 +200,7 @@ export const getCartTool = tool(
       explanation: `Checked cart: ${cart.items.length} item(s), total ₹${(cart.total / 100).toFixed(2)}.`,
     });
 
-    return cart;
+    return JSON.stringify(cart);
   },
   {
     name: "get_cart",
@@ -211,12 +219,12 @@ export const addToCartTool = tool(
       .limit(1);
 
     if (!product) {
-      return { error: "Product not found" };
+      return JSON.stringify({ error: "Product not found" });
     }
     if (product.inventory < input.quantity) {
-      return {
+      return JSON.stringify({
         error: `Only ${product.inventory} unit(s) of ${product.name} in stock`,
-      };
+      });
     }
 
     await addToCart(sessionId, input.productId, input.quantity, input.variantId);
@@ -230,7 +238,7 @@ export const addToCartTool = tool(
       explanation: `Added ${input.quantity} x ${product.name} to cart.`,
     });
 
-    return cart;
+    return JSON.stringify(cart);
   },
   {
     name: "add_to_cart",
@@ -257,7 +265,7 @@ export const removeFromCartTool = tool(
       explanation: `Removed product ${input.productId} from cart.`,
     });
 
-    return cart;
+    return JSON.stringify(cart);
   },
   {
     name: "remove_from_cart",
@@ -272,7 +280,8 @@ export const removeFromCartTool = tool(
 export const createCheckoutTool = tool(
   async (_input, config) => {
     const sessionId = sessionIdFrom(config);
-    return createCheckoutForSession(sessionId);
+    const checkout = await createCheckoutForSession(sessionId);
+    return JSON.stringify(checkout);
   },
   {
     name: "create_checkout",

@@ -1,6 +1,6 @@
 import { StateGraph, MessagesAnnotation, START, END } from "@langchain/langgraph";
 import { ToolNode, toolsCondition } from "@langchain/langgraph/prebuilt";
-import { SystemMessage } from "@langchain/core/messages";
+import { SystemMessage, ToolMessage } from "@langchain/core/messages";
 import type { RunnableConfig } from "@langchain/core/runnables";
 import { getChatModel } from "@/lib/llm/client";
 import { commerceTools } from "@/lib/agent/tools";
@@ -17,7 +17,7 @@ Guidelines:
 - Only call create_checkout after the shopper has explicitly confirmed they want to pay for what's in the cart. Summarize the cart and total first.
 - All prices are in Indian Rupees (INR). Amounts from tools are in paise (1/100 rupee) unless noted — convert to rupees when speaking to the shopper.
 - If a tool returns an error (e.g. out of stock, empty cart), explain it plainly and suggest an alternative.
-- Keep responses concise and conversational. This is test-mode payments — you can mention that if asked.`;
+- Keep responses concise, clean, and conversational. Use simple bullet points and bold text for formatting. Do not generate raw markdown ASCII tables (e.g. | col | col |); present lists and cart items cleanly using bullet points instead.`;
 
 async function buildGraph() {
   const checkpointer = await getCheckpointer();
@@ -25,8 +25,50 @@ async function buildGraph() {
   const toolNode = new ToolNode(commerceTools);
 
   async function agentNode(state: typeof MessagesAnnotation.State, config: RunnableConfig) {
+    const sanitizedMessages = state.messages.map((msg) => {
+      const isTool =
+        (typeof ToolMessage.isInstance === "function" && ToolMessage.isInstance(msg)) ||
+        (msg as any)._getType?.() === "tool" ||
+        (msg as any).type === "tool" ||
+        (msg as any).role === "tool";
+
+      if (isTool) {
+        const rawContent = msg.content;
+        let stringContent: string;
+        if (typeof rawContent === "string") {
+          stringContent = rawContent;
+        } else if (Array.isArray(rawContent)) {
+          stringContent = rawContent
+            .map((item) =>
+              typeof item === "string"
+                ? item
+                : (item as { text?: string }).text ?? JSON.stringify(item)
+            )
+            .filter(Boolean)
+            .join("\n");
+        } else {
+          stringContent = JSON.stringify(rawContent);
+        }
+
+        if (!stringContent || stringContent.trim() === "" || stringContent.trim() === "[]") {
+          stringContent = "No results returned.";
+        }
+
+        return new ToolMessage({
+          content: stringContent,
+          tool_call_id:
+            (msg as ToolMessage).tool_call_id ||
+            (msg as any).tool_call_id ||
+            "call_unknown",
+          name: (msg as ToolMessage).name || (msg as any).name,
+          id: msg.id,
+        });
+      }
+      return msg;
+    });
+
     const response = await model.invoke(
-      [new SystemMessage(SYSTEM_PROMPT), ...state.messages],
+      [new SystemMessage(SYSTEM_PROMPT), ...sanitizedMessages],
       config
     );
     return { messages: [response] };

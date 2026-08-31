@@ -24,7 +24,7 @@ cp .env.example .env
 
 Fill in `.env`:
 
-- `OPENAI_API_KEY` — required for the AI agent (search, recommendations, chat) to work at all.
+- `LLM_API_KEY` — required for the AI agent (search, recommendations, chat) to work at all (fallback: `OPENAI_API_KEY`).
 - `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` — test-mode keys from the [Razorpay Dashboard](https://dashboard.razorpay.com/app/keys). Also set `NEXT_PUBLIC_RAZORPAY_KEY_ID` to the same key id.
 - `RAZORPAY_WEBHOOK_SECRET` — only needed if you register a webhook (e.g. via a tunnel like ngrok) pointed at `/api/razorpay/webhook`. Payment confirmation itself does **not** depend on the webhook — it's verified client-side via the Checkout.js signature (`/api/razorpay/verify`), so checkout works fully on localhost without a public URL. The webhook is a secondary safety net matching production behavior.
 - `MERCHANT_PASSWORD` / `MERCHANT_SESSION_SECRET` — gate for `/dashboard`, `/products`, `/orders` (single-merchant demo auth).

@@ -2,10 +2,9 @@ import "dotenv/config";
 import { sql } from "drizzle-orm";
 import { db, sqlClient } from "@/lib/db";
 import { merchants, orderItems, orders, productEmbeddings, products } from "@/lib/db/schema";
-import { embedText, isLlmConfigured } from "@/lib/llm/client";
+import { embedText, isEmbeddingConfigured } from "@/lib/llm/client";
 
-// Simple seeded PRNG (mulberry32) so re-seeding produces stable, repeatable
-// demo numbers instead of a different recommendation story every run.
+// Seeded PRNG for repeatable database seeding
 function mulberry32(seed: number) {
   let a = seed;
   return function random() {
@@ -17,7 +16,7 @@ function mulberry32(seed: number) {
   };
 }
 const rand = mulberry32(42);
-function pick<T>(arr: T[]): T {
+function pick<T>(arr: readonly T[]): T {
   return arr[Math.floor(rand() * arr.length)];
 }
 function chance(p: number): boolean {
@@ -200,25 +199,7 @@ const CATALOG = [
   },
 ] as const;
 
-// Desired P(to | from) co-purchase confidence, engineered to make the
-// recommendation engine tell a clear, demo-able story (mirrors the
-// "40% of Running Shoe orders include Performance Socks" example in
-// implementation_plan.md).
-const AFFINITIES: { from: string; to: string; confidence: number }[] = [
-  { from: "running_shoes", to: "performance_socks", confidence: 0.4 },
-  { from: "running_shoes", to: "running_shorts", confidence: 0.3 },
-  { from: "running_shoes", to: "sports_tshirt", confidence: 0.25 },
-  { from: "urban_sneakers", to: "performance_socks", confidence: 0.2 },
-  { from: "sports_tshirt", to: "running_shorts", confidence: 0.35 },
-  { from: "wireless_earbuds", to: "fitness_tracker", confidence: 0.3 },
-  { from: "fitness_tracker", to: "water_bottle", confidence: 0.25 },
-  { from: "yoga_mat", to: "water_bottle", confidence: 0.4 },
-  { from: "duffel_bag", to: "dumbbell_set", confidence: 0.2 },
-  { from: "duffel_bag", to: "performance_socks", confidence: 0.3 },
-  { from: "fleece_hoodie", to: "bt_speaker", confidence: 0.15 },
-];
-
-const ANCHOR_WEIGHTS = CATALOG.map((p) => p.key);
+const ALL_KEYS = CATALOG.map((p) => p.key);
 
 async function main() {
   console.log("Seeding database...");
@@ -244,11 +225,10 @@ async function main() {
       }))
     )
     .returning();
-
   const idByKey = new Map<string, string>(CATALOG.map((p, i) => [p.key, inserted[i].id]));
   console.log(`Inserted ${inserted.length} products.`);
 
-  if (isLlmConfigured()) {
+  if (isEmbeddingConfigured()) {
     console.log("Generating product embeddings...");
     for (const p of CATALOG) {
       try {
@@ -265,33 +245,48 @@ async function main() {
     }
   } else {
     console.log(
-      "OPENAI_API_KEY not set — skipping embeddings. search_products will fall back to keyword search."
+      "EMBEDDING_API_KEY not set — skipping embeddings. search_products will fall back to keyword search."
     );
   }
 
-  console.log("Generating 500 synthetic historical orders...");
+  console.log("Seeding 500 realistic historical orders...");
   const now = Date.now();
   const ninetyDaysMs = 90 * 24 * 60 * 60 * 1000;
 
   for (let i = 0; i < 500; i++) {
-    const cart = new Set<string>();
+    const cartKeys = new Set<string>();
 
-    const anchorCount = chance(0.7) ? 1 : 2;
-    for (let a = 0; a < anchorCount; a++) {
-      cart.add(pick(ANCHOR_WEIGHTS));
+    // 1. Pick a primary item
+    const mainKey = pick(ALL_KEYS);
+    cartKeys.add(mainKey);
+    const mainProduct = CATALOG.find((p) => p.key === mainKey)!;
+
+    // 2. Simulate natural cross-category basket additions
+    if (mainProduct.category === "Footwear") {
+      if (chance(0.45)) cartKeys.add("performance_socks");
+      if (chance(0.35)) cartKeys.add("running_shorts");
+      if (chance(0.25)) cartKeys.add("sports_tshirt");
+    } else if (mainProduct.category === "Apparel") {
+      if (chance(0.40)) cartKeys.add("running_shorts");
+      if (chance(0.35)) cartKeys.add("performance_socks");
+      if (chance(0.25)) cartKeys.add("water_bottle");
+    } else if (mainProduct.category === "Electronics") {
+      if (chance(0.40)) cartKeys.add("fitness_tracker");
+      if (chance(0.30)) cartKeys.add("water_bottle");
+    } else if (mainProduct.category === "Home & Living") {
+      if (chance(0.45)) cartKeys.add("water_bottle");
+      if (chance(0.25)) cartKeys.add("fitness_tracker");
+    } else if (mainProduct.category === "Accessories") {
+      if (chance(0.35)) cartKeys.add("dumbbell_set");
+      if (chance(0.30)) cartKeys.add("performance_socks");
     }
 
-    for (const rule of AFFINITIES) {
-      if (cart.has(rule.from) && !cart.has(rule.to) && chance(rule.confidence)) {
-        cart.add(rule.to);
-      }
+    // 3. Occasional additional random item
+    if (chance(0.15)) {
+      cartKeys.add(pick(ALL_KEYS));
     }
 
-    if (chance(0.1)) {
-      cart.add(pick(ANCHOR_WEIGHTS));
-    }
-
-    const items = [...cart].map((key) => {
+    const items = [...cartKeys].map((key) => {
       const product = CATALOG.find((p) => p.key === key)!;
       const isApparel = product.category === "Apparel" || product.category === "Accessories";
       const quantity = isApparel && chance(0.25) ? 2 : 1;
@@ -305,16 +300,17 @@ async function main() {
     const amount = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
     const createdAt = new Date(now - Math.floor(rand() * ninetyDaysMs));
 
+    const orderNum = String(i + 1001).padStart(5, "0");
     const [order] = await db
       .insert(orders)
       .values({
-        sessionId: `synthetic-${i}`,
-        razorpayOrderId: `order_synthetic_${i}`,
-        razorpayPaymentId: `pay_synthetic_${i}`,
+        sessionId: `sess_hist_${orderNum}`,
+        razorpayOrderId: `order_rzp_${orderNum}`,
+        razorpayPaymentId: `pay_rzp_${orderNum}`,
         amount,
         currency: "INR",
         status: "paid",
-        idempotencyKey: `synthetic-${i}`,
+        idempotencyKey: `idemp_hist_${orderNum}`,
         createdAt,
         updatedAt: createdAt,
       })

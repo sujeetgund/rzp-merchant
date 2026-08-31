@@ -33,22 +33,131 @@ function chunkText(chunk: AIMessageChunk): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
     return content
-      .map((part) => (typeof part === "object" && part && "text" in part ? String(part.text) : ""))
+      .map((part) =>
+        typeof part === "object" && part && "text" in part
+          ? String(part.text)
+          : "",
+      )
       .join("");
   }
   return "";
 }
 
+export async function GET() {
+  const sessionId = await getSessionId();
+  try {
+    const graph = await getCommerceGraph();
+    const state = await graph.getState({
+      configurable: { thread_id: sessionId, sessionId },
+    });
+
+    const rawMessages = (state.values as { messages?: any[] })?.messages || [];
+    const pairs: Array<{
+      userText: string;
+      assistantText: string;
+      toolResults: Array<{ name: string; output: unknown }>;
+    }> = [];
+
+    for (const msg of rawMessages) {
+      const type =
+        (msg as any)._getType?.() ||
+        (msg as any).type ||
+        (msg as any).role ||
+        (msg.constructor?.name === "HumanMessage" ? "human" : "") ||
+        (msg.constructor?.name === "AIMessage" ? "ai" : "") ||
+        (msg.constructor?.name === "ToolMessage" ? "tool" : "");
+
+      if (type === "human" || type === "user") {
+        const text = typeof msg.content === "string" ? msg.content : JSON.stringify(msg.content);
+        pairs.push({
+          userText: text,
+          assistantText: "",
+          toolResults: [],
+        });
+      } else if (type === "ai" || type === "assistant") {
+        const textContent = typeof msg.content === "string" ? msg.content : chunkText(msg);
+        if (pairs.length === 0 || (!pairs[pairs.length - 1].userText && pairs[pairs.length - 1].assistantText)) {
+          if (textContent && textContent.trim()) {
+            pairs.push({
+              userText: "",
+              assistantText: textContent,
+              toolResults: [],
+            });
+          }
+        } else {
+          const lastPair = pairs[pairs.length - 1];
+          if (textContent && textContent.trim()) {
+            lastPair.assistantText = lastPair.assistantText
+              ? `${lastPair.assistantText}\n\n${textContent}`
+              : textContent;
+          }
+        }
+      } else if (type === "tool") {
+        if (pairs.length === 0) {
+          pairs.push({ userText: "", assistantText: "", toolResults: [] });
+        }
+        const lastPair = pairs[pairs.length - 1];
+        lastPair.toolResults.push({
+          name: (msg as any).name || "tool",
+          output: normalizeToolOutput(msg.content),
+        });
+      }
+    }
+
+    // Flatten pairs into generic turns array
+    const turns: Array<{
+      role: "user" | "assistant";
+      text: string;
+      toolResults: Array<{ name: string; output: unknown }>;
+    }> = [];
+
+    for (const p of pairs) {
+      const hasUserText = Boolean(p.userText && p.userText.trim());
+      const hasAssistantContent = Boolean(p.assistantText.trim()) || p.toolResults.length > 0;
+
+      // Discard orphaned user prompts that failed mid-execution before producing any response
+      if (hasUserText && !hasAssistantContent) {
+        continue;
+      }
+
+      if (hasUserText) {
+        turns.push({
+          role: "user",
+          text: p.userText,
+          toolResults: [],
+        });
+      }
+
+      if (hasAssistantContent) {
+        turns.push({
+          role: "assistant",
+          text: p.assistantText,
+          toolResults: p.toolResults,
+        });
+      }
+    }
+
+    return Response.json({ turns });
+  } catch (err) {
+    return Response.json({ turns: [] });
+  }
+}
+
 export async function POST(request: Request) {
   const { message } = (await request.json()) as { message?: string };
   if (!message || typeof message !== "string" || !message.trim()) {
-    return new Response(JSON.stringify({ error: "message is required" }), { status: 400 });
+    return new Response(JSON.stringify({ error: "message is required" }), {
+      status: 400,
+    });
   }
 
   if (!isLlmConfigured()) {
-    return new Response(JSON.stringify({ error: "OPENAI_API_KEY is not configured on the server." }), {
-      status: 503,
-    });
+    return new Response(
+      JSON.stringify({ error: "LLM_API_KEY is not configured on the server." }),
+      {
+        status: 503,
+      },
+    );
   }
 
   const sessionId = await getSessionId();
@@ -70,14 +179,15 @@ export async function POST(request: Request) {
           {
             version: "v2",
             configurable: { thread_id: sessionId, sessionId },
-          }
+          },
         );
 
         for await (const event of events) {
           switch (event.event) {
             case "on_chat_model_stream": {
               const text = chunkText(event.data.chunk as AIMessageChunk);
-              if (text) controller.enqueue(sseEvent({ type: "token", content: text }));
+              if (text)
+                controller.enqueue(sseEvent({ type: "token", content: text }));
               break;
             }
             case "on_tool_start": {
@@ -86,7 +196,7 @@ export async function POST(request: Request) {
                   type: "tool_start",
                   name: event.name,
                   input: event.data.input,
-                })
+                }),
               );
               break;
             }
@@ -96,7 +206,7 @@ export async function POST(request: Request) {
                   type: "tool_end",
                   name: event.name,
                   output: normalizeToolOutput(event.data.output),
-                })
+                }),
               );
               break;
             }
@@ -107,7 +217,24 @@ export async function POST(request: Request) {
 
         controller.enqueue(sseEvent({ type: "done" }));
       } catch (err) {
-        controller.enqueue(sseEvent({ type: "error", message: (err as Error).message }));
+        const errorObj = err as any;
+        const statusCode =
+          errorObj?.status ??
+          errorObj?.statusCode ??
+          errorObj?.response?.status ??
+          errorObj?.status_code;
+        const rawMsg = errorObj?.message ?? "";
+
+        let friendlyMsg = rawMsg;
+        if (
+          statusCode === 429 ||
+          rawMsg.includes("429") ||
+          rawMsg.toLowerCase().includes("rate limit")
+        ) {
+          friendlyMsg =
+            "The AI assistant is receiving a high volume of requests right now. Please wait a few seconds and try again.";
+        }
+        controller.enqueue(sseEvent({ type: "error", message: friendlyMsg }));
       } finally {
         controller.close();
       }
