@@ -4,8 +4,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { orders } from "@/lib/db/schema";
 import { verifyPaymentSignature } from "@/lib/razorpay/client";
-import { clearCart } from "@/lib/cart";
-import { logAudit } from "@/lib/agent/audit";
+import { fulfillOrderAndReduceInventory } from "@/lib/commerce/inventory";
 
 const bodySchema = z.object({
   razorpay_order_id: z.string(),
@@ -39,20 +38,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
 
-  if (order.status !== "paid") {
-    await db
-      .update(orders)
-      .set({ status: "paid", razorpayPaymentId: razorpay_payment_id, updatedAt: new Date() })
-      .where(eq(orders.id, order.id));
-    await clearCart(order.sessionId);
-    await logAudit({
-      sessionId: order.sessionId,
-      action: "PAYMENT_CAPTURED",
-      input: { razorpayOrderId: razorpay_order_id, paymentId: razorpay_payment_id },
-      explanation: `Payment verified client-side for order ${order.id}. Cart cleared.`,
-      riskLevel: "LOW",
-    });
-  }
+  await fulfillOrderAndReduceInventory(order.id, razorpay_payment_id);
 
   return NextResponse.json({ orderId: order.id });
 }

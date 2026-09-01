@@ -1,7 +1,7 @@
 import { redis } from "@/lib/redis/client";
 import { db } from "@/lib/db";
 import { products } from "@/lib/db/schema";
-import { inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
 export interface CartItem {
   productId: string;
@@ -54,13 +54,28 @@ export async function addToCart(
   quantity: number,
   variantId?: string
 ): Promise<CartItem[]> {
+  const [product] = await db.select().from(products).where(eq(products.id, productId)).limit(1);
+
+  if (!product) {
+    throw new Error("Product not found.");
+  }
+
   const items = await getRawCart(sessionId);
   const existing = items.find((i) => sameLine(i, { productId, variantId }));
+  const targetQuantity = (existing?.quantity ?? 0) + quantity;
+
+  if (targetQuantity > product.inventory) {
+    throw new Error(
+      `Only ${product.inventory} unit(s) of ${product.name} available in stock (${existing?.quantity ?? 0} currently in cart).`
+    );
+  }
+
   if (existing) {
-    existing.quantity += quantity;
+    existing.quantity = targetQuantity;
   } else {
     items.push({ productId, quantity, variantId });
   }
+
   const cleaned = items.filter((i) => i.quantity > 0);
   await saveRawCart(sessionId, cleaned);
   return cleaned;
@@ -72,13 +87,25 @@ export async function setCartItemQuantity(
   quantity: number,
   variantId?: string
 ): Promise<CartItem[]> {
+  const [product] = await db.select().from(products).where(eq(products.id, productId)).limit(1);
+
+  if (!product && quantity > 0) {
+    throw new Error("Product not found.");
+  }
+
+  if (product && quantity > product.inventory) {
+    throw new Error(`Only ${product.inventory} unit(s) of ${product.name} available in stock.`);
+  }
+
   const items = await getRawCart(sessionId);
   const existing = items.find((i) => sameLine(i, { productId, variantId }));
+
   if (existing) {
     existing.quantity = quantity;
   } else if (quantity > 0) {
     items.push({ productId, quantity, variantId });
   }
+
   const cleaned = items.filter((i) => i.quantity > 0);
   await saveRawCart(sessionId, cleaned);
   return cleaned;

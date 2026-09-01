@@ -3,8 +3,8 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { orders } from "@/lib/db/schema";
 import { verifyWebhookSignature } from "@/lib/razorpay/client";
-import { clearCart } from "@/lib/cart";
 import { logAudit } from "@/lib/agent/audit";
+import { fulfillOrderAndReduceInventory } from "@/lib/commerce/inventory";
 
 interface RazorpayPaymentEntity {
   id: string;
@@ -55,20 +55,7 @@ export async function POST(request: Request) {
   }
 
   if (body.event === "payment.captured" || body.event === "order.paid") {
-    if (order.status !== "paid") {
-      await db
-        .update(orders)
-        .set({ status: "paid", razorpayPaymentId: payment.id, updatedAt: new Date() })
-        .where(eq(orders.id, order.id));
-      await clearCart(order.sessionId);
-      await logAudit({
-        sessionId: order.sessionId,
-        action: "PAYMENT_CAPTURED",
-        input: { razorpayOrderId: payment.order_id, paymentId: payment.id },
-        explanation: `Payment captured for order ${order.id}. Cart cleared.`,
-        riskLevel: "LOW",
-      });
-    }
+    await fulfillOrderAndReduceInventory(order.id, payment.id);
   } else if (body.event === "payment.failed") {
     if (order.status !== "paid") {
       await db

@@ -1,12 +1,21 @@
 import { NextResponse } from "next/server";
 import { getSessionId } from "@/lib/session";
-import { createCheckoutForSession } from "@/lib/commerce/checkout";
+import { createCheckoutForSession, createDirectCheckoutForProduct } from "@/lib/commerce/checkout";
 
-export async function POST() {
+export async function POST(req: Request) {
   const sessionId = await getSessionId();
 
   try {
-    const result = await createCheckoutForSession(sessionId);
+    const body = await req.json().catch(() => ({}));
+    const { productId, quantity = 1, variantId } = body;
+
+    let result;
+    if (productId && typeof productId === "string") {
+      result = await createDirectCheckoutForProduct(sessionId, productId, quantity, variantId);
+    } else {
+      result = await createCheckoutForSession(sessionId);
+    }
+
     if ("error" in result) {
       return NextResponse.json({ error: result.error }, { status: 400 });
     }
