@@ -1,41 +1,35 @@
 import {
   pgTable,
-  pgEnum,
-  uuid,
-  varchar,
   text,
+  varchar,
   integer,
+  timestamp,
   boolean,
   jsonb,
-  timestamp,
   customType,
+  pgEnum,
+  uuid,
   index,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
-const EMBEDDING_DIMENSIONS = 1536;
-
-const vector = customType<{ data: number[]; config: { dimensions: number } }>({
-  dataType(config) {
-    return `vector(${config?.dimensions ?? EMBEDDING_DIMENSIONS})`;
+const customVector = customType<{ data: number[] }>({
+  dataType() {
+    return "vector(1536)";
   },
   toDriver(value: number[]): string {
-    return `[${value.join(",")}]`;
+    return JSON.stringify(value);
   },
   fromDriver(value: unknown): number[] {
-    if (Array.isArray(value)) return value as number[];
-    const raw = String(value);
-    return raw
-      .slice(1, -1)
-      .split(",")
-      .filter(Boolean)
-      .map(Number);
+    if (typeof value === "string") {
+      return JSON.parse(value);
+    }
+    return value as number[];
   },
 });
 
 export const orderStatusEnum = pgEnum("order_status", [
   "created",
-  "authorized",
   "paid",
   "failed",
   "cancelled",
@@ -43,23 +37,23 @@ export const orderStatusEnum = pgEnum("order_status", [
 
 export const riskLevelEnum = pgEnum("risk_level", ["LOW", "MEDIUM", "HIGH"]);
 
-// Better Auth Core Tables
+// Better Auth core tables
 export const user = pgTable("user", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   email: text("email").notNull().unique(),
   emailVerified: boolean("email_verified").notNull().default(false),
   image: text("image"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
 export const session = pgTable("session", {
   id: text("id").primaryKey(),
-  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
   token: text("token").notNull().unique(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
   ipAddress: text("ip_address"),
   userAgent: text("user_agent"),
   userId: text("user_id")
@@ -77,12 +71,12 @@ export const account = pgTable("account", {
   accessToken: text("access_token"),
   refreshToken: text("refresh_token"),
   idToken: text("id_token"),
-  accessTokenExpiresAt: timestamp("access_token_expires_at", { withTimezone: true }),
-  refreshTokenExpiresAt: timestamp("refresh_token_expires_at", { withTimezone: true }),
+  accessTokenExpiresAt: timestamp("access_token_expires_at"),
+  refreshTokenExpiresAt: timestamp("refresh_token_expires_at"),
   scope: text("scope"),
   password: text("password"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
   issuer: text("issuer"),
 });
 
@@ -90,9 +84,9 @@ export const verification = pgTable("verification", {
   id: text("id").primaryKey(),
   identifier: text("identifier").notNull(),
   value: text("value").notNull(),
-  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 export const passkey = pgTable("passkey", {
@@ -102,40 +96,69 @@ export const passkey = pgTable("passkey", {
   userId: text("user_id")
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
-  credentialID: text("credential_i_d").notNull(),
+  webauthnUserID: text("webauthn_user_id").notNull(),
   counter: integer("counter").notNull(),
   deviceType: text("device_type").notNull(),
   backedUp: boolean("backed_up").notNull(),
   transports: text("transports"),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
   aaguid: text("aaguid"),
+  credentialID: text("credential_id"),
 });
 
-// Storefront & Merchant Tables
 export const merchants = pgTable("merchants", {
   id: uuid("id").primaryKey().defaultRandom(),
-  name: varchar("name", { length: 255 }).notNull().default("Demo Merchant"),
-  currency: varchar("currency", { length: 8 }).notNull().default("INR"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  name: varchar("name", { length: 255 }).notNull(),
+  slug: varchar("slug", { length: 128 }).notNull().unique(),
+  policyConfig: jsonb("policy_config").notNull().default({
+    maxDiscountPercent: 15,
+    maxOrderAmountINR: 50000,
+    requireApprovalAboveINR: 10000,
+    allowedCategories: [],
+  }),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export const merchantApiKeys = pgTable("merchant_api_keys", {
+  id: text("id").primaryKey(),
+  merchantId: text("merchant_id").notNull(),
+  keyHash: text("key_hash").notNull(),
+  name: text("name").notNull(),
+  scopes: text("scopes").array().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
 });
 
 export const products = pgTable(
   "products",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    merchantId: uuid("merchant_id").references(() => merchants.id, { onDelete: "cascade" }),
     name: varchar("name", { length: 255 }).notNull(),
     description: text("description").notNull().default(""),
     price: integer("price").notNull(), // paise
     inventory: integer("inventory").notNull().default(0),
-    category: varchar("category", { length: 100 }).notNull(),
-    variants: jsonb("variants").$type<{ id: string; name: string; extraPrice?: number }[]>(),
+    category: varchar("category", { length: 128 }).notNull().default("General"),
+    variants: jsonb("variants").$type<{ id: string; name: string; extraPrice?: number }[] | null>(),
     imageUrl: text("image_url"),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
   },
   (table) => [
     index("products_category_idx").on(table.category),
-    index("products_name_idx").on(table.name),
+    index("products_merchant_idx").on(table.merchantId),
   ]
 );
 
@@ -143,8 +166,10 @@ export const productEmbeddings = pgTable("product_embeddings", {
   productId: uuid("product_id")
     .primaryKey()
     .references(() => products.id, { onDelete: "cascade" }),
-  embedding: vector("embedding", { dimensions: EMBEDDING_DIMENSIONS }).notNull(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  embedding: customVector("embedding"),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
 });
 
 export const orders = pgTable(
@@ -197,6 +222,25 @@ export const agentSessions = pgTable("agent_sessions", {
   lastActiveAt: timestamp("last_active_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const checkoutSessions = pgTable(
+  "checkout_sessions",
+  {
+    id: varchar("id", { length: 64 }).primaryKey(), // cs_...
+    sessionId: varchar("session_id", { length: 128 }).notNull(),
+    userId: text("user_id").references(() => user.id, { onDelete: "set null" }),
+    status: varchar("status", { length: 32 }).notNull().default("DRAFT"), // DRAFT | VALIDATED | PAID | FAILED
+    amount: integer("amount").notNull(), // paise
+    currency: varchar("currency", { length: 8 }).notNull().default("INR"),
+    items: jsonb("items").notNull().default([]),
+    buyerMandate: jsonb("buyer_mandate"),
+    razorpayOrderId: varchar("razorpay_order_id", { length: 64 }),
+    paymentLink: text("payment_link"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [index("checkout_sessions_session_idx").on(table.sessionId)]
+);
+
 export const auditLogs = pgTable(
   "audit_logs",
   {
@@ -232,11 +276,14 @@ export const orderItemsRelations = relations(orderItems, ({ one }) => ({
 
 export type User = typeof user.$inferSelect;
 export type Merchant = typeof merchants.$inferSelect;
+export type MerchantApiKey = typeof merchantApiKeys.$inferSelect;
 export type Product = typeof products.$inferSelect;
 export type NewProduct = typeof products.$inferInsert;
 export type Order = typeof orders.$inferSelect;
 export type NewOrder = typeof orders.$inferInsert;
 export type OrderItem = typeof orderItems.$inferSelect;
 export type NewOrderItem = typeof orderItems.$inferInsert;
+export type CheckoutSession = typeof checkoutSessions.$inferSelect;
+export type NewCheckoutSession = typeof checkoutSessions.$inferInsert;
 export type AuditLog = typeof auditLogs.$inferSelect;
 export type NewAuditLog = typeof auditLogs.$inferInsert;

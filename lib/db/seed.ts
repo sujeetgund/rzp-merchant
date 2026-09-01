@@ -201,7 +201,12 @@ const CATALOG = [
 
 const ALL_KEYS = CATALOG.map((p) => p.key);
 
+import { runMigrations } from "./migrate";
+
 async function main() {
+  console.log("Running migrations...");
+  await runMigrations();
+
   console.log("Seeding database...");
 
   await sqlClient`
@@ -209,7 +214,7 @@ async function main() {
     RESTART IDENTITY CASCADE
   `;
 
-  await db.insert(merchants).values({ name: "Demo Merchant", currency: "INR" });
+  await db.insert(merchants).values({ name: "Demo Merchant", slug: "demo-merchant" });
 
   const inserted = await db
     .insert(products)

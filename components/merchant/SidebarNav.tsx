@@ -13,6 +13,7 @@ import {
   Search,
   Command,
   Activity,
+  Bot,
 } from "lucide-react";
 import {
   Sidebar,
@@ -114,7 +115,7 @@ export function SidebarNav() {
         {/* Storefront Navigation */}
         <SidebarGroup>
           <SidebarGroupLabel className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground px-2">
-            Consumer Surface
+            Consumer & Agent Surfaces
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
@@ -127,6 +128,18 @@ export function SidebarNav() {
                   <Store className="size-3.5 text-muted-foreground" />
                   <span className="flex-1 font-medium">Live Storefront</span>
                   <span className="flex size-2 rounded-full bg-emerald-500 shadow-2xs" />
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  tooltip="AI Buyer Demo (V2)"
+                  render={<Link href="/ai-buyer" target="_blank" />}
+                  className="gap-2.5 border border-sidebar-border bg-sidebar-accent/40 text-sidebar-foreground hover:bg-sidebar-accent py-2 text-xs mt-1"
+                >
+                  <Bot className="size-3.5 text-primary" />
+                  <span className="flex-1 font-medium">AI Buyer Demo (V2)</span>
+                  <span className="flex size-2 rounded-full bg-primary shadow-2xs" />
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>

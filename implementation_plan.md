@@ -1,5 +1,6 @@
 # rzp Merchant — Implementation Plan
-### *A merchant that humans and AI agents can discover, shop, and transact with*
+
+### _A merchant that humans and AI agents can discover, shop, and transact with_
 
 ---
 
@@ -20,16 +21,16 @@ The platform evolves across four stages: V1 (AI Salesman) → V2 (AI-Buyable Mer
 
 LangGraph ships as **`@langchain/langgraph`** (TypeScript-native). The full AI stack runs server-side in Next.js API routes and Server Actions:
 
-| Concern | Solution (pure JS/TS) |
-|---|---|
-| Agent orchestration | `@langchain/langgraph` (StateGraph, nodes, edges) |
-| LLM calls | `@langchain/openai` or `@langchain/anthropic` |
-| Tool calling | LangGraph tool nodes, function calling |
-| Streaming responses | LangGraph `streamEvents` → SSE → React |
-| Human-in-the-loop | LangGraph interrupt mechanism + API route approval |
-| MCP server | `@modelcontextprotocol/sdk` (official TS SDK) |
-| Vector search | pgvector extension on Postgres |
-| Session/cache | `ioredis` for Redis |
+| Concern             | Solution (pure JS/TS)                              |
+| ------------------- | -------------------------------------------------- |
+| Agent orchestration | `@langchain/langgraph` (StateGraph, nodes, edges)  |
+| LLM calls           | `@langchain/openai` or `@langchain/anthropic`      |
+| Tool calling        | LangGraph tool nodes, function calling             |
+| Streaming responses | LangGraph `streamEvents` → SSE → React             |
+| Human-in-the-loop   | LangGraph interrupt mechanism + API route approval |
+| MCP server          | `@modelcontextprotocol/sdk` (official TS SDK)      |
+| Vector search       | pgvector extension on Postgres                     |
+| Session/cache       | `ioredis` for Redis                                |
 
 The only scenario where Python adds value is if you want to use advanced ML libraries (e.g., scikit-learn for real association mining). For our use case (support/confidence math is pure arithmetic), **there is no reason to introduce Python**.
 
@@ -42,19 +43,20 @@ The only scenario where Python adds value is if you want to use advanced ML libr
 > [!IMPORTANT]
 > Razorpay **does not have a native product catalog API** (like Shopify's). We own the catalog in our Postgres DB, and we use Razorpay strictly for the **payment/order layer**. This is correct architecture — catalog is ours, payments are Razorpay's.
 
-| API | Availability | Purpose |
-|---|---|---|
-| `POST /v1/orders` | ✅ Test mode | Create order before payment |
-| `GET /v1/orders/{id}` | ✅ Test mode | Fetch order details |
-| `GET /v1/orders/{id}/payments` | ✅ Test mode | Payment status on order |
-| `POST /v1/payments/{id}/capture` | ✅ Test mode | Capture authorized payment |
-| `GET /v1/payments/{id}` | ✅ Test mode | Fetch payment details |
-| `POST /v1/refunds` | ✅ Test mode | Refund a payment |
-| Webhooks (`order.paid`, `payment.failed`) | ✅ Test mode | Async payment events |
-| Razorpay Checkout JS | ✅ Test mode | In-browser payment widget |
-| Test cards (success/fail simulation) | ✅ Provided by Razorpay | Demo failure handling |
+| API                                       | Availability            | Purpose                     |
+| ----------------------------------------- | ----------------------- | --------------------------- |
+| `POST /v1/orders`                         | ✅ Test mode            | Create order before payment |
+| `GET /v1/orders/{id}`                     | ✅ Test mode            | Fetch order details         |
+| `GET /v1/orders/{id}/payments`            | ✅ Test mode            | Payment status on order     |
+| `POST /v1/payments/{id}/capture`          | ✅ Test mode            | Capture authorized payment  |
+| `GET /v1/payments/{id}`                   | ✅ Test mode            | Fetch payment details       |
+| `POST /v1/refunds`                        | ✅ Test mode            | Refund a payment            |
+| Webhooks (`order.paid`, `payment.failed`) | ✅ Test mode            | Async payment events        |
+| Razorpay Checkout JS                      | ✅ Test mode            | In-browser payment widget   |
+| Test cards (success/fail simulation)      | ✅ Provided by Razorpay | Demo failure handling       |
 
 **What we build ourselves (not from Razorpay):**
+
 - Product catalog, inventory, cart — owned in Postgres
 - Agent session state — Redis + Postgres
 - Policy engine, audit trail — our code
@@ -76,7 +78,7 @@ Razorpay Node.js SDK + Checkout.js — payments
 ```
 
 > [!NOTE]
-> **Next.js version:** Next.js 16.3.3 is installed. shadcn/ui is installed. 
+> **Next.js version:** Next.js 16.3.3 is installed. shadcn/ui is installed.
 
 > [!NOTE]
 > **LLM:** Any OpenAI-compatible provider works. Switch model and base URL via `LLM_MODEL` and `LLM_BASE_URL` in `.env`. Default: GPT-4o via OpenAI. Swap to local Ollama, Anthropic proxy, or any OpenAI-compatible endpoint without code changes.
@@ -135,16 +137,16 @@ Razorpay Node.js SDK + Checkout.js — payments
 
 ```typescript
 // Core tables
-merchants          // merchant account + settings
-products           // catalog (name, price, inventory, variants, category)
-product_embeddings // pgvector for semantic search
-order_items        // line items (for support/confidence computation)
-orders             // our internal orders + Razorpay order_id
-agent_sessions     // LangGraph thread state
-checkout_sessions  // ACP-style checkout session objects (carry buyer's declared mandate)
-audit_logs         // every agent action with explanation + risk level
-campaigns          // V4 campaign definitions
-campaign_results   // V4 campaign performance metrics
+merchants; // merchant account + settings
+products; // catalog (name, price, inventory, variants, category)
+product_embeddings; // pgvector for semantic search
+order_items; // line items (for support/confidence computation)
+orders; // our internal orders + Razorpay order_id
+agent_sessions; // LangGraph thread state
+checkout_sessions; // ACP-style checkout session objects (carry buyer's declared mandate)
+audit_logs; // every agent action with explanation + risk level
+campaigns; // V4 campaign definitions
+campaign_results; // V4 campaign performance metrics
 ```
 
 ---
@@ -221,12 +223,15 @@ rzp-merchant/
 **Implementation:** Next.js App Router with server components. Drizzle ORM queries. No external dependencies beyond standard Next.js patterns.
 
 #### [NEW] `app/(merchant)/dashboard/page.tsx`
+
 Dashboard overview: total revenue, order count, top products.
 
 #### [NEW] `app/(merchant)/products/page.tsx`
+
 Product list with add/edit/delete. Form for: name, description, price, inventory, category, variants (JSON), image URL.
 
 #### [NEW] `app/(merchant)/orders/page.tsx`
+
 Order list with status, Razorpay order ID, payment status.
 
 ---
@@ -236,12 +241,15 @@ Order list with status, Razorpay order ID, payment status.
 Traditional ecommerce UI. Product grid, product detail page, cart sidebar.
 
 #### [NEW] `app/(store)/page.tsx`
+
 Product listing with search/filter. Products fetched from our DB.
 
 #### [NEW] `app/(store)/products/[id]/page.tsx`
+
 Product detail with "Add to Cart" and "Shop with AI" CTA.
 
 #### [NEW] `components/storefront/CartSidebar.tsx`
+
 Slide-out cart. Cart state in Redis (keyed by session ID cookie).
 
 ---
@@ -312,7 +320,7 @@ Checkpointer: PostgresSaver (persists conversation per sessionId)
 // 3. Compute confidence = orders(A∩B) / orders(A)
 // 4. Return top-N recommendations sorted by confidence
 
-function getRecommendations(productIds: string[]): Recommendation[]
+function getRecommendations(productIds: string[]): Recommendation[];
 ```
 
 This is pure SQL arithmetic — no ML library needed.
@@ -440,6 +448,7 @@ DELETE /api/commerce/checkout/:id           → Cancel session
 ```
 
 **Checkout session states:**
+
 ```
 DRAFT → VALIDATED → PAYMENT_INITIATED → PAID / FAILED / CANCELLED
 ```
@@ -457,7 +466,7 @@ Approach A — Payment Link (realistic, recommended for demo Act 3)
   AI buyer surfaces link: "Human confirmation needed: rzp.io/xxxx"
           ↓
   Human clicks → pays → webhook confirms
-  
+
 Approach B — Programmatic test payment (fully automated demo)
   AI buyer calls POST /api/commerce/checkout/:id/complete
           ↓
@@ -503,6 +512,7 @@ This is the demo's Act 2 — the most impressive part for judges.
 ### 3.1 Policy Engine
 
 **Ownership is clear:**
+
 - **Buyer's mandate** → set by whoever deployed the AI buyer. Declares what the AI is allowed to spend. Carried inside the checkout session.
 - **Merchant's checks** → fraud/abuse protection. Not revenue limiting — merchants want sales. Guards against bulk abuse, inventory manipulation, unauthorized discounts.
 
@@ -510,14 +520,14 @@ This is the demo's Act 2 — the most impressive part for judges.
 // lib/agent/policy.ts
 
 interface PolicyCheck {
-  allowed: boolean
-  reason: string
-  requiresHumanConfirmation: boolean   // buyer must confirm (gating)
-  risk: 'LOW' | 'MEDIUM' | 'HIGH'
-  violations: string[]
+  allowed: boolean;
+  reason: string;
+  requiresHumanConfirmation: boolean; // buyer must confirm (gating)
+  risk: "LOW" | "MEDIUM" | "HIGH";
+  violations: string[];
 }
 
-function checkPolicy(checkout: CheckoutSession): PolicyCheck
+function checkPolicy(checkout: CheckoutSession): PolicyCheck;
 
 // Buyer-side checks (from checkout session's declared mandate):
 // 1. Cart total ≤ buyerMandate.maxAmount
@@ -534,9 +544,9 @@ function checkPolicy(checkout: CheckoutSession): PolicyCheck
 
 ```typescript
 interface BuyerMandate {
-  maxAmount: number           // "My user said: spend up to ₹3,000"
-  allowedCategories?: string[] // "My user said: only shoes"
-  requireHumanPaymentConfirmation: boolean  // always true → payment link flow
+  maxAmount: number; // "My user said: spend up to ₹3,000"
+  allowedCategories?: string[]; // "My user said: only shoes"
+  requireHumanPaymentConfirmation: boolean; // always true → payment link flow
 }
 ```
 
@@ -568,15 +578,15 @@ Every agent decision is stored in `audit_logs` with a structured explanation:
 
 ```typescript
 interface AuditEntry {
-  timestamp: Date
-  sessionId: string
-  action: string           // "SEARCH_PRODUCTS" | "RECOMMEND" | "POLICY_CHECK" | ...
-  input: object            // What the agent received
-  output: object           // What the agent decided
-  explanation: string      // Human-readable why
-  riskLevel: 'LOW' | 'MEDIUM' | 'HIGH'
-  requiresApproval: boolean
-  policyViolations: string[]
+  timestamp: Date;
+  sessionId: string;
+  action: string; // "SEARCH_PRODUCTS" | "RECOMMEND" | "POLICY_CHECK" | ...
+  input: object; // What the agent received
+  output: object; // What the agent decided
+  explanation: string; // Human-readable why
+  riskLevel: "LOW" | "MEDIUM" | "HIGH";
+  requiresApproval: boolean;
+  policyViolations: string[];
 }
 ```
 
@@ -623,7 +633,7 @@ Real-time timeline visible on the merchant dashboard and in the demo.
 // 1. Mark checkout session as FAILED
 // 2. Do NOT create a duplicate order (idempotency key on Razorpay order)
 // 3. Log audit entry: PAYMENT_FAILED
-// 4. Agent response: "Payment wasn't completed. No charge was made and 
+// 4. Agent response: "Payment wasn't completed. No charge was made and
 //    no duplicate order was created. Would you like to retry?"
 // 5. Checkout session returned to AUTHORIZED state for retry
 ```
@@ -632,7 +642,7 @@ Real-time timeline visible on the merchant dashboard and in the demo.
 
 ```typescript
 // Each checkout session has a fingerprint = hash(sessionId + cartFingerprint)
-// Before calling Razorpay POST /orders, check: 
+// Before calling Razorpay POST /orders, check:
 //   SELECT * FROM orders WHERE idempotency_key = fingerprint
 // If exists and payment is pending, return existing order
 // This prevents double-charging on retry
@@ -646,7 +656,7 @@ Real-time timeline visible on the merchant dashboard and in the demo.
 
 **Goal:** Move from selling to one customer to growing the merchant's entire business.
 
-The merchant says: *"Increase weekend revenue by 15% while keeping discounts below 10%."*
+The merchant says: _"Increase weekend revenue by 15% while keeping discounts below 10%."_
 
 ---
 
@@ -700,8 +710,8 @@ Nodes:
   "budget": "₹5,000",
   "duration": "This weekend",
   "expectedImpact": "+12–18% revenue",
-  "explanation": "These 3 products drove 42% of last weekend's revenue. 
-                  Returning customers have 2.3x conversion rate. 
+  "explanation": "These 3 products drove 42% of last weekend's revenue.
+                  Returning customers have 2.3x conversion rate.
                   8% discount keeps margin positive."
 }
 ```
@@ -726,6 +736,7 @@ Merchant clicks Approve → campaign launches.
 ## Verification Plan
 
 ### V1 Verification
+
 - [ ] Merchant can add products and see them in storefront
 - [ ] AI agent can answer "Find me shoes under ₹3,000" with relevant products
 - [ ] Agent suggests cross-sell via support/confidence
@@ -735,12 +746,14 @@ Merchant clicks Approve → campaign launches.
 - [ ] Audit log entry created for every tool call
 
 ### V2 Verification
+
 - [ ] MCP server discoverable and tools callable from an external MCP client
 - [ ] ACP checkout session API: create → get → complete lifecycle works
 - [ ] Demo AI buyer script completes a purchase end-to-end
 - [ ] Checkout session status transitions correctly
 
 ### V3 Verification
+
 - [ ] Policy engine blocks cart total exceeding buyer's declared mandate
 - [ ] Merchant's rate-limit check prevents inventory abuse
 - [ ] Payment link generated for human-gated AI buyer flow
@@ -750,6 +763,7 @@ Merchant clicks Approve → campaign launches.
 - [ ] Audit console shows full timeline with explanations
 
 ### V4 Verification
+
 - [ ] Campaign orchestrator proposes a valid campaign from natural language input
 - [ ] Merchant can approve/reject proposed campaign
 - [ ] Campaign performance metrics update after simulated orders
@@ -769,25 +783,25 @@ V4: ██████                THIN PROTOTYPE IS FINE (wow vision)
 
 ## Demo Story (6 Acts)
 
-| Act | Scenario | Demonstrates |
-|-----|----------|-------------|
-| 1 | Human: "Birthday gift under ₹2,000" → AI recommends → upsells socks → Checkout.js payment succeeds | V1: AI Salesman + upsell |
-| 2 | AI Buyer via MCP: discovers catalog, creates checkout session (mandate: ₹3,000), completes programmatic test payment | V2: AI-buyable merchant, full automation |
-| 3 | AI Buyer tries purchase of ₹5,000 item → Mandate violated → session fails → payment link issued for human confirmation | V3: Bounded + gated, human-in-the-loop |
-| 4 | Payment fails → "No charge made, no duplicate order. Retry?" | V3: Graceful failure + idempotency |
-| 5 | Open Agent Activity Console → full timestamped timeline with structured explanations | V3: Explainable + auditable |
-| 6 | Merchant: "Grow weekend revenue by 15%" → Campaign proposed by AI | V4: AI Growth vision |
+| Act | Scenario                                                                                                               | Demonstrates                             |
+| --- | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| 1   | Human: "Birthday gift under ₹2,000" → AI recommends → upsells socks → Checkout.js payment succeeds                     | V1: AI Salesman + upsell                 |
+| 2   | AI Buyer via MCP: discovers catalog, creates checkout session (mandate: ₹3,000), completes programmatic test payment   | V2: AI-buyable merchant, full automation |
+| 3   | AI Buyer tries purchase of ₹5,000 item → Mandate violated → session fails → payment link issued for human confirmation | V3: Bounded + gated, human-in-the-loop   |
+| 4   | Payment fails → "No charge made, no duplicate order. Retry?"                                                           | V3: Graceful failure + idempotency       |
+| 5   | Open Agent Activity Console → full timestamped timeline with structured explanations                                   | V3: Explainable + auditable              |
+| 6   | Merchant: "Grow weekend revenue by 15%" → Campaign proposed by AI                                                      | V4: AI Growth vision                     |
 
 ---
 
 ## Resolved Decisions
 
-| Decision | Resolution |
-|---|---|
-| **LLM Provider** | OpenAI-compatible. `LLM_MODEL` + `LLM_BASE_URL` in `.env`. No code changes to switch providers. |
-| **MCP Transport** | HTTP+SSE. Accessible to remote clients and compatible with Claude Desktop. |
-| **AP2 Protocol** | Not implemented. Out of scope — buyer-side concern. MCP + ACP is the complete protocol story. |
-| **AI Buyer payment** | Two modes: Approach A (Payment Link, realistic) + Approach B (programmatic test capture, demo automation). |
-| **Policy ownership** | Merchant side = fraud/abuse protection. Buyer side = spending mandate declared in checkout session. |
-| **Seed data** | 15 curated products with known co-purchase patterns + 500 synthetic historical orders for reliable demo recommendations. |
-| **Campaign delivery** | Out of scope. Demo shows proposal + merchant approval flow only. |
+| Decision              | Resolution                                                                                                               |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| **LLM Provider**      | OpenAI-compatible. `LLM_MODEL` + `LLM_BASE_URL` in `.env`. No code changes to switch providers.                          |
+| **MCP Transport**     | HTTP+SSE. Accessible to remote clients and compatible with Claude Desktop.                                               |
+| **AP2 Protocol**      | Not implemented. Out of scope — buyer-side concern. MCP + ACP is the complete protocol story.                            |
+| **AI Buyer payment**  | Two modes: Approach A (Payment Link, realistic) + Approach B (programmatic test capture, demo automation).               |
+| **Policy ownership**  | Merchant side = fraud/abuse protection. Buyer side = spending mandate declared in checkout session.                      |
+| **Seed data**         | 15 curated products with known co-purchase patterns + 500 synthetic historical orders for reliable demo recommendations. |
+| **Campaign delivery** | Out of scope. Demo shows proposal + merchant approval flow only.                                                         |

@@ -8,8 +8,11 @@ import { Resend } from "resend";
 
 const resendApiKey = process.env.RESEND_API_KEY;
 const resend = resendApiKey ? new Resend(resendApiKey) : null;
+const baseURL = process.env.BETTER_AUTH_URL || "http://localhost:3000";
 
 export const auth = betterAuth({
+  appName: "rzp Store",
+  baseURL,
   database: drizzleAdapter(db, {
     provider: "pg",
     schema,
@@ -17,7 +20,7 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     minPasswordLength: 6,
-    requireEmailVerification: false, // Allows easy login while supporting full Resend email verification
+    requireEmailVerification: false,
     async sendResetPassword({ user, url }) {
       if (resend) {
         await resend.emails.send({
@@ -48,7 +51,11 @@ export const auth = betterAuth({
     },
   },
   plugins: [
-    passkey(),
+    passkey({
+      rpID: process.env.NODE_ENV === "production" ? "rzp-store.com" : "localhost",
+      rpName: "rzp Store",
+      origin: baseURL,
+    }),
     nextCookies(),
   ],
 });

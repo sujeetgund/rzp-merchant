@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
+import { ChatImage } from "@/components/ui/chat-image";
 import { gooeyToast } from "@/components/ui/goey-toaster";
 import {
   Check,
@@ -16,6 +17,7 @@ import {
   ArrowUpRight,
   Bot,
   ArrowUp,
+  ExternalLink,
 } from "lucide-react";
 import {
   Sheet,
@@ -59,17 +61,100 @@ const CART_TOOLS = new Set(["add_to_cart", "remove_from_cart", "get_cart"]);
 const PRODUCT_LIST_TOOLS = new Set(["search_products", "get_recommendations"]);
 
 function renderInlineMarkdown(text: string): React.ReactNode[] {
-  const parts = text.split(/(\*\*.*?\*\*)/g);
+  const regex = /(\*\*.*?\*\*|\[.*?\]\(.*?\)|\bhttps?:\/\/[^\s<]+)/g;
+  const parts = text.split(regex);
+
   return parts.map((part, i) => {
+    if (!part) return null;
+
     if (part.startsWith("**") && part.endsWith("**") && part.length >= 4) {
       return (
-        <strong key={i} className="font-semibold">
+        <strong key={i} className="font-semibold text-foreground">
           {part.slice(2, -2)}
         </strong>
       );
     }
+
+    if (part.startsWith("[") && part.includes("](") && part.endsWith(")")) {
+      const match = part.match(/^\[(.*?)\]\((.*?)\)$/);
+      if (match) {
+        const label = match[1];
+        const url = match[2];
+
+        return (
+          <a
+            key={i}
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-medium text-primary underline underline-offset-2 hover:text-primary/80 transition-colors"
+          >
+            {label}
+          </a>
+        );
+      }
+    }
+
+    if (part.startsWith("http://") || part.startsWith("https://")) {
+      return (
+        <a
+          key={i}
+          href={part}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-medium text-primary underline underline-offset-2 break-all hover:text-primary/80 transition-colors"
+        >
+          {part}
+        </a>
+      );
+    }
+
     return part;
   });
+}
+
+function parseMarkdownImage(line: string): { isImage: boolean; alt?: string; src?: string; width?: string; height?: string } {
+  const trimmed = line.trim();
+  // Match ![alt](url) or ![alt|300x200](url) or ![alt](url =300x200)
+  const imgRegex = /^!\[(.*?)\]\((.*?)\)$/;
+  const match = trimmed.match(imgRegex);
+  if (match) {
+    let altPart = match[1] || "";
+    let srcPart = match[2] || "";
+    let width: string | undefined;
+    let height: string | undefined;
+
+    if (altPart.includes("|")) {
+      const [altText, dims] = altPart.split("|");
+      altPart = altText;
+      if (dims && dims.includes("x")) {
+        const [w, h] = dims.split("x");
+        width = w;
+        height = h;
+      }
+    }
+
+    if (srcPart.includes(" =")) {
+      const [url, dims] = srcPart.split(" =");
+      srcPart = url;
+      if (dims && dims.includes("x")) {
+        const [w, h] = dims.split("x");
+        width = w;
+        height = h;
+      }
+    }
+
+    return { isImage: true, alt: altPart, src: srcPart, width, height };
+  }
+
+  // Match standalone image URL
+  const urlRegex = /^(https?:\/\/.*\.(?:png|jpg|jpeg|gif|webp|svg))(?:\?.*)?$/i;
+  const urlMatch = trimmed.match(urlRegex);
+  if (urlMatch) {
+    return { isImage: true, alt: "Product image", src: urlMatch[1] };
+  }
+
+  return { isImage: false };
 }
 
 function FormattedText({ text }: { text: string }) {
@@ -82,6 +167,20 @@ function FormattedText({ text }: { text: string }) {
       {lines.map((line, idx) => {
         const trimmed = line.trim();
         if (!trimmed) return <div key={idx} className="h-1" />;
+
+        // Check for Image
+        const img = parseMarkdownImage(trimmed);
+        if (img.isImage && img.src) {
+          return (
+            <ChatImage
+              key={idx}
+              src={img.src}
+              alt={img.alt}
+              width={img.width}
+              height={img.height}
+            />
+          );
+        }
 
         if (trimmed.startsWith("### ")) {
           return (
