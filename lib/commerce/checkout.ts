@@ -35,7 +35,7 @@ function fingerprintFor(sessionId: string, items: { productId: string; variantId
 /**
  * Creates (or idempotently reuses) a Razorpay order for the session's current cart.
  */
-export async function createCheckoutForSession(sessionId: string): Promise<CheckoutOutcome> {
+export async function createCheckoutForSession(sessionId: string, userId?: string): Promise<CheckoutOutcome> {
   const cart = await getHydratedCart(sessionId);
 
   if (cart.items.length === 0) {
@@ -87,7 +87,7 @@ export async function createCheckoutForSession(sessionId: string): Promise<Check
       amount: cart.total,
       currency: cart.currency,
       receipt: fingerprint,
-      notes: { sessionId, type: "cart_checkout" },
+      notes: { sessionId, type: "cart_checkout", userId: userId ?? "" },
     });
   } catch (err) {
     const description =
@@ -108,6 +108,7 @@ export async function createCheckoutForSession(sessionId: string): Promise<Check
     .insert(orders)
     .values({
       sessionId,
+      userId: userId ?? null,
       razorpayOrderId: String(rzpOrder.id),
       amount: cart.total,
       currency: cart.currency,
@@ -158,7 +159,8 @@ export async function createDirectCheckoutForProduct(
   sessionId: string,
   productId: string,
   quantity = 1,
-  variantId?: string
+  variantId?: string,
+  userId?: string
 ): Promise<CheckoutOutcome> {
   const [product] = await db.select().from(products).where(eq(products.id, productId)).limit(1);
 
@@ -179,7 +181,7 @@ export async function createDirectCheckoutForProduct(
       amount: totalAmount,
       currency: "INR",
       receipt: fingerprint,
-      notes: { sessionId, type: "direct_buy_now", productId },
+      notes: { sessionId, type: "direct_buy_now", productId, userId: userId ?? "" },
     });
   } catch (err) {
     const description =
@@ -200,6 +202,7 @@ export async function createDirectCheckoutForProduct(
     .insert(orders)
     .values({
       sessionId,
+      userId: userId ?? null,
       razorpayOrderId: String(rzpOrder.id),
       amount: totalAmount,
       currency: "INR",

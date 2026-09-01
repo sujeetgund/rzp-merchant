@@ -16,12 +16,16 @@ import { useCart } from "@/components/storefront/CartContext";
 import { useAIDrawer } from "@/components/storefront/AIDrawerContext";
 import type { Product } from "@/lib/db/schema";
 import { openRazorpayCheckout, verifyPaymentOnServer } from "@/lib/razorpay/checkoutClient";
+import { useSession } from "@/lib/auth/auth-client";
+import { AuthModal } from "@/components/auth/AuthModal";
 
 export function ProductDetailActions({ product }: { product: Product }) {
   const { addItem, cart } = useCart();
   const { open } = useAIDrawer();
+  const { data: session } = useSession();
   const [pending, startTransition] = useTransition();
   const [buying, setBuying] = useState(false);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
   const variants = product.variants ?? [];
   const [variantId, setVariantId] = useState<string | undefined>(variants[0]?.id);
 
@@ -30,6 +34,12 @@ export function ProductDetailActions({ product }: { product: Product }) {
 
   const handleBuyNow = async () => {
     if (buying || outOfStock) return;
+
+    if (!session?.user) {
+      setAuthModalOpen(true);
+      return;
+    }
+
     setBuying(true);
     try {
       const res = await fetch("/api/razorpay/order", {
@@ -39,7 +49,11 @@ export function ProductDetailActions({ product }: { product: Product }) {
       });
       const data = await res.json();
       if (!res.ok || data.error) {
-        gooeyToast.error(data.error ?? "Failed to initialize Buy Now checkout.");
+        if (res.status === 401) {
+          setAuthModalOpen(true);
+        } else {
+          gooeyToast.error(data.error ?? "Failed to initialize Buy Now checkout.");
+        }
         setBuying(false);
         return;
       }
@@ -70,67 +84,100 @@ export function ProductDetailActions({ product }: { product: Product }) {
     }
   };
 
+  const handleAiAssistant = () => {
+    if (!session?.user) {
+      setAuthModalOpen(true);
+    } else {
+      open();
+    }
+  };
+
   return (
-    <div className="space-y-4">
-      {variants.length > 0 && (
-        <Select value={variantId} onValueChange={(value) => setVariantId(value ?? undefined)}>
-          <SelectTrigger className="w-44">
-            <SelectValue placeholder="Choose an option" />
-          </SelectTrigger>
-          <SelectContent>
-            {variants.map((v) => (
-              <SelectItem key={v.id} value={v.id}>
-                {v.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      )}
+    <>
+      <div className="space-y-4">
+        {variants.length > 0 && (
+          <div className="space-y-2">
+            <label className="text-xs font-medium">Select Variant</label>
+            <Select value={variantId} onValueChange={(val) => setVariantId(val ?? undefined)}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Choose option" />
+              </SelectTrigger>
+              <SelectContent>
+                {variants.map((v) => (
+                  <SelectItem key={v.id} value={v.id}>
+                    {v.name}
+                    {v.extraPrice ? ` (+₹${(v.extraPrice / 100).toFixed(2)})` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
 
-      <div className="flex flex-wrap gap-2">
+        <div className="grid grid-cols-2 gap-3">
+          <Button
+            variant="outline"
+            size="lg"
+            className={cn(
+              "w-full text-xs font-medium transition-all duration-200",
+              isInCart && "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border-emerald-500/30"
+            )}
+            disabled={pending || outOfStock}
+            onClick={() =>
+              startTransition(async () => {
+                await addItem(product.id, 1, variantId);
+                gooeyToast.success(`${product.name} added to cart`);
+              })
+            }
+          >
+            {outOfStock ? (
+              "Out of stock"
+            ) : pending ? (
+              "Adding..."
+            ) : isInCart ? (
+              <span className="flex items-center justify-center gap-1">
+                <Check className="size-4 text-emerald-600" /> In Cart
+              </span>
+            ) : (
+              "Add to cart"
+            )}
+          </Button>
+
+          <Button
+            size="lg"
+            disabled={buying || outOfStock}
+            onClick={handleBuyNow}
+            className="w-full text-xs font-semibold gap-1.5"
+          >
+            {buying ? (
+              "Loading..."
+            ) : (
+              <>
+                <Zap className="size-4 fill-current text-amber-300" />
+                <span>Buy Now</span>
+              </>
+            )}
+          </Button>
+        </div>
+
         <Button
-          variant="outline"
-          disabled={pending || outOfStock}
-          className={cn(
-            "transition-all duration-200 font-medium",
-            isInCart && "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border-emerald-500/30 font-medium"
-          )}
-          onClick={() =>
-            startTransition(async () => {
-              await addItem(product.id, 1, variantId);
-              gooeyToast.success(`${product.name} added to cart`);
-            })
-          }
+          variant="secondary"
+          size="lg"
+          onClick={handleAiAssistant}
+          className="w-full gap-2 text-xs font-medium"
         >
-          {outOfStock ? (
-            "Out of stock"
-          ) : pending ? (
-            "Adding..."
-          ) : isInCart ? (
-            <span className="flex items-center justify-center gap-1.5 font-medium">
-              <Check className="size-4" /> In Cart
-            </span>
-          ) : (
-            "Add to cart"
-          )}
-        </Button>
-
-        <Button disabled={buying || outOfStock} onClick={handleBuyNow} className="gap-1.5 font-semibold">
-          {buying ? (
-            "Loading..."
-          ) : (
-            <>
-              <Zap className="size-4 fill-current" />
-              <span>Buy Now</span>
-            </>
-          )}
-        </Button>
-
-        <Button variant="ghost" onClick={open} className="gap-1.5">
-          <Sparkles className="size-4 text-primary" />
-          <span>Shop with AI</span>
+          <Sparkles className="size-4 text-amber-500" />
+          <span>Ask AI Assistant about this product</span>
         </Button>
       </div>
-    </div>
+
+      <AuthModal
+        isOpen={authModalOpen}
+        onClose={() => setAuthModalOpen(false)}
+        title="Sign In Required"
+        description="Please sign in or create an account to proceed with purchase or talk to AI Assistant."
+        onSuccess={() => handleBuyNow()}
+      />
+    </>
   );
 }

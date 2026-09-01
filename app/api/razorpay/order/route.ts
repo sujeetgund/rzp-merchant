@@ -1,8 +1,18 @@
 import { NextResponse } from "next/server";
 import { getSessionId } from "@/lib/session";
 import { createCheckoutForSession, createDirectCheckoutForProduct } from "@/lib/commerce/checkout";
+import { auth } from "@/lib/auth/auth";
+import { headers } from "next/headers";
 
 export async function POST(req: Request) {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session?.user) {
+    return NextResponse.json(
+      { error: "Authentication required. Please sign in to place orders." },
+      { status: 401 }
+    );
+  }
+
   const sessionId = await getSessionId();
 
   try {
@@ -11,9 +21,9 @@ export async function POST(req: Request) {
 
     let result;
     if (productId && typeof productId === "string") {
-      result = await createDirectCheckoutForProduct(sessionId, productId, quantity, variantId);
+      result = await createDirectCheckoutForProduct(sessionId, productId, quantity, variantId, session.user.id);
     } else {
-      result = await createCheckoutForSession(sessionId);
+      result = await createCheckoutForSession(sessionId, session.user.id);
     }
 
     if ("error" in result) {

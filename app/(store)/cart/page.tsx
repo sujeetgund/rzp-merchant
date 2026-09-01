@@ -10,19 +10,32 @@ import { Button } from "@/components/ui/button";
 import { useCart } from "@/components/storefront/CartContext";
 import { formatPaise } from "@/lib/format";
 import { openRazorpayCheckout, verifyPaymentOnServer } from "@/lib/razorpay/checkoutClient";
+import { useSession } from "@/lib/auth/auth-client";
+import { AuthModal } from "@/components/auth/AuthModal";
 
 export default function CartPage() {
   const { cart, updateQuantity, removeItem, refresh } = useCart();
+  const { data: session } = useSession();
   const router = useRouter();
   const [checkingOut, setCheckingOut] = useState(false);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
 
   async function handleCheckout() {
+    if (!session?.user) {
+      setAuthModalOpen(true);
+      return;
+    }
+
     setCheckingOut(true);
     try {
       const res = await fetch("/api/razorpay/order", { method: "POST" });
       const data = await res.json();
       if (!res.ok) {
-        gooeyToast.error(data.error ?? "Could not start checkout");
+        if (res.status === 401) {
+          setAuthModalOpen(true);
+        } else {
+          gooeyToast.error(data.error ?? "Could not start checkout");
+        }
         setCheckingOut(false);
         return;
       }
@@ -70,61 +83,71 @@ export default function CartPage() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-8">
-      <h1 className="mb-6 text-2xl font-bold tracking-tight">Your Cart</h1>
-      <div className="divide-y rounded-xl border bg-card shadow-2xs">
-        {cart.items.map((item) => (
-          <div
-            key={`${item.productId}-${item.variantId ?? ""}`}
-            className="flex items-center gap-4 p-4"
-          >
-            <div className="relative size-16 shrink-0 overflow-hidden rounded-lg bg-muted">
-              {item.imageUrl && (
-                <Image src={item.imageUrl} alt={item.name} fill sizes="64px" className="object-cover" />
-              )}
-            </div>
-            <div className="flex-1">
-              <p className="font-semibold text-sm">{item.name}</p>
-              <p className="text-xs text-muted-foreground tabular-nums">{formatPaise(item.price)}</p>
-            </div>
-            <div className="flex items-center gap-1">
-              <Button
-                variant="outline"
-                size="icon-sm"
-                onClick={() => updateQuantity(item.productId, item.quantity - 1, item.variantId)}
-              >
-                <Minus className="size-3" />
-              </Button>
-              <span className="w-6 text-center text-xs font-mono font-bold tabular-nums">{item.quantity}</span>
-              <Button
-                variant="outline"
-                size="icon-sm"
-                disabled={item.quantity >= item.inventory}
-                onClick={() => updateQuantity(item.productId, item.quantity + 1, item.variantId)}
-              >
-                <Plus className="size-3" />
-              </Button>
-            </div>
-            <p className="w-20 text-right text-sm font-mono font-bold tabular-nums">{formatPaise(item.lineTotal)}</p>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => removeItem(item.productId, item.variantId)}
+    <>
+      <div className="mx-auto max-w-2xl px-4 py-8">
+        <h1 className="mb-6 text-2xl font-bold tracking-tight">Your Cart</h1>
+        <div className="divide-y rounded-xl border bg-card shadow-2xs">
+          {cart.items.map((item) => (
+            <div
+              key={`${item.productId}-${item.variantId ?? ""}`}
+              className="flex items-center gap-4 p-4"
             >
-              <Trash2 className="size-4 text-destructive" />
-            </Button>
-          </div>
-        ))}
+              <div className="relative size-16 shrink-0 overflow-hidden rounded-lg bg-muted">
+                {item.imageUrl && (
+                  <Image src={item.imageUrl} alt={item.name} fill sizes="64px" className="object-cover" />
+                )}
+              </div>
+              <div className="flex-1">
+                <p className="font-semibold text-sm">{item.name}</p>
+                <p className="text-xs text-muted-foreground tabular-nums">{formatPaise(item.price)}</p>
+              </div>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  onClick={() => updateQuantity(item.productId, item.quantity - 1, item.variantId)}
+                >
+                  <Minus className="size-3" />
+                </Button>
+                <span className="w-6 text-center text-xs font-mono font-bold tabular-nums">{item.quantity}</span>
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  disabled={item.quantity >= item.inventory}
+                  onClick={() => updateQuantity(item.productId, item.quantity + 1, item.variantId)}
+                >
+                  <Plus className="size-3" />
+                </Button>
+              </div>
+              <p className="w-20 text-right text-sm font-mono font-bold tabular-nums">{formatPaise(item.lineTotal)}</p>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => removeItem(item.productId, item.variantId)}
+              >
+                <Trash2 className="size-4 text-destructive" />
+              </Button>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-6 flex items-center justify-between border-t pt-4">
+          <span className="text-base font-semibold">Total</span>
+          <span className="text-lg font-bold font-mono tabular-nums">{formatPaise(cart.total)}</span>
+        </div>
+
+        <Button className="mt-4 w-full font-semibold" size="lg" disabled={checkingOut} onClick={handleCheckout}>
+          {checkingOut ? "Opening Razorpay..." : "Proceed to Checkout"}
+        </Button>
       </div>
 
-      <div className="mt-6 flex items-center justify-between border-t pt-4">
-        <span className="text-base font-semibold">Total</span>
-        <span className="text-lg font-bold font-mono tabular-nums">{formatPaise(cart.total)}</span>
-      </div>
-
-      <Button className="mt-4 w-full font-semibold" size="lg" disabled={checkingOut} onClick={handleCheckout}>
-        {checkingOut ? "Opening Razorpay..." : "Proceed to Checkout"}
-      </Button>
-    </div>
+      <AuthModal
+        isOpen={authModalOpen}
+        onClose={() => setAuthModalOpen(false)}
+        title="Sign In to Checkout"
+        description="Please sign in or create an account to proceed with cart checkout."
+        onSuccess={() => handleCheckout()}
+      />
+    </>
   );
 }

@@ -6,6 +6,8 @@ import { isLlmConfigured } from "@/lib/llm/client";
 import { db } from "@/lib/db";
 import { agentSessions } from "@/lib/db/schema";
 import { sql } from "drizzle-orm";
+import { auth } from "@/lib/auth/auth";
+import { headers } from "next/headers";
 
 export const runtime = "nodejs";
 
@@ -44,6 +46,11 @@ function chunkText(chunk: AIMessageChunk): string {
 }
 
 export async function GET() {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session?.user) {
+    return Response.json({ turns: [], error: "Authentication required" }, { status: 401 });
+  }
+
   const sessionId = await getSessionId();
   try {
     const graph = await getCommerceGraph();
@@ -104,7 +111,6 @@ export async function GET() {
       }
     }
 
-    // Flatten pairs into generic turns array
     const turns: Array<{
       role: "user" | "assistant";
       text: string;
@@ -115,7 +121,6 @@ export async function GET() {
       const hasUserText = Boolean(p.userText && p.userText.trim());
       const hasAssistantContent = Boolean(p.assistantText.trim()) || p.toolResults.length > 0;
 
-      // Discard orphaned user prompts that failed mid-execution before producing any response
       if (hasUserText && !hasAssistantContent) {
         continue;
       }
@@ -138,12 +143,20 @@ export async function GET() {
     }
 
     return Response.json({ turns });
-  } catch (err) {
+  } catch {
     return Response.json({ turns: [] });
   }
 }
 
 export async function POST(request: Request) {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session?.user) {
+    return new Response(
+      JSON.stringify({ error: "Authentication required. Please sign in to use Shop with AI." }),
+      { status: 401 }
+    );
+  }
+
   const { message } = (await request.json()) as { message?: string };
   if (!message || typeof message !== "string" || !message.trim()) {
     return new Response(JSON.stringify({ error: "message is required" }), {
@@ -154,9 +167,7 @@ export async function POST(request: Request) {
   if (!isLlmConfigured()) {
     return new Response(
       JSON.stringify({ error: "LLM_API_KEY is not configured on the server." }),
-      {
-        status: 503,
-      },
+      { status: 503 }
     );
   }
 
@@ -164,10 +175,10 @@ export async function POST(request: Request) {
 
   await db
     .insert(agentSessions)
-    .values({ sessionId })
+    .values({ sessionId, userId: session.user.id })
     .onConflictDoUpdate({
       target: agentSessions.sessionId,
-      set: { lastActiveAt: sql`now()` },
+      set: { lastActiveAt: sql`now()`, userId: session.user.id },
     });
 
   const stream = new ReadableStream<Uint8Array>({
