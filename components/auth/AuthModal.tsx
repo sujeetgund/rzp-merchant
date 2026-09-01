@@ -90,7 +90,7 @@ export function AuthModal({
   return (
     <Dialog open={isOpen} onOpenChange={(val) => !val && onClose()}>
       <DialogContent className="sm:max-w-md bg-card border-border shadow-xl">
-        <DialogHeader className="space-y-1">
+        <DialogHeader className="space-y-1 pr-8">
           <DialogTitle className="text-xl font-bold tracking-tight flex items-center gap-2">
             <Sparkles className="size-5 text-amber-500" />
             <span>{title}</span>

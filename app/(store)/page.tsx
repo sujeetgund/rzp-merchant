@@ -3,10 +3,8 @@ import { and, asc, ilike, or, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { products } from "@/lib/db/schema";
 import { ProductCard } from "@/components/storefront/ProductCard";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
+import { StoreSearchSection } from "@/components/storefront/StoreSearchSection";
 import { Badge } from "@/components/ui/badge";
-import { Search, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -17,6 +15,18 @@ interface StorePageProps {
 
 export default async function StorePage({ searchParams }: StorePageProps) {
   const { q, category } = await searchParams;
+
+  const allProducts = await db
+    .select({
+      id: products.id,
+      name: products.name,
+      category: products.category,
+      price: products.price,
+      imageUrl: products.imageUrl,
+      description: products.description,
+    })
+    .from(products)
+    .orderBy(asc(products.name));
 
   const categoryRows = await db
     .selectDistinct({ category: products.category })
@@ -53,24 +63,12 @@ export default async function StorePage({ searchParams }: StorePageProps) {
           </div>
         </div>
 
-        {/* Clean Search & Filter Bar */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-          <form className="relative flex-1 flex gap-2" action="/">
-            {category && <input type="hidden" name="category" value={category} />}
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
-              <Input
-                name="q"
-                placeholder="Search catalog..."
-                defaultValue={q ?? ""}
-                className="pl-9 h-10 bg-card border-border/80 shadow-2xs"
-              />
-            </div>
-            <Button type="submit" className="h-10 px-5 font-medium">
-              Search
-            </Button>
-          </form>
-        </div>
+        {/* Autocomplete Search Bar */}
+        <StoreSearchSection
+          products={allProducts}
+          initialQuery={q ?? ""}
+          category={category}
+        />
 
         {/* Category Pills */}
         <div className="flex flex-wrap gap-1.5 pt-1">

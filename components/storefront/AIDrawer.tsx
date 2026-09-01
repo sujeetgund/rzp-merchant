@@ -4,7 +4,19 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { gooeyToast } from "@/components/ui/goey-toaster";
-import { Check, Plus, Send, Sparkles } from "lucide-react";
+import {
+  Check,
+  Plus,
+  Send,
+  Sparkles,
+  Search,
+  CreditCard,
+  Package,
+  ShoppingBag,
+  ArrowUpRight,
+  Bot,
+  ArrowUp,
+} from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -66,21 +78,27 @@ function FormattedText({ text }: { text: string }) {
   const lines = text.split("\n");
 
   return (
-    <div className="space-y-1 text-sm leading-relaxed break-words [word-break:break-word] overflow-hidden">
+    <div className="space-y-1.5 text-xs leading-relaxed break-words [word-break:break-word] overflow-hidden">
       {lines.map((line, idx) => {
         const trimmed = line.trim();
         if (!trimmed) return <div key={idx} className="h-1" />;
 
         if (trimmed.startsWith("### ")) {
           return (
-            <h4 key={idx} className="mt-2 mb-1 font-semibold text-foreground">
+            <h4
+              key={idx}
+              className="mt-2 mb-1 font-semibold text-foreground text-xs"
+            >
               {renderInlineMarkdown(trimmed.slice(4))}
             </h4>
           );
         }
         if (trimmed.startsWith("## ")) {
           return (
-            <h3 key={idx} className="mt-2 mb-1 font-bold text-foreground">
+            <h3
+              key={idx}
+              className="mt-2 mb-1 font-bold text-foreground text-xs"
+            >
               {renderInlineMarkdown(trimmed.slice(3))}
             </h3>
           );
@@ -133,7 +151,8 @@ function CheckoutOutput({ output }: { output: unknown }) {
 
   useEffect(() => {
     if (checkout?.orderId) {
-      const isPaid = localStorage.getItem(`rzp_paid_${checkout.orderId}`) === "true";
+      const isPaid =
+        localStorage.getItem(`rzp_paid_${checkout.orderId}`) === "true";
       if (isPaid) setPaid(true);
     }
   }, [checkout?.orderId]);
@@ -163,7 +182,10 @@ function CheckoutOutput({ output }: { output: unknown }) {
       <Button
         size="sm"
         disabled={paying}
-        className={cn("w-full transition-all duration-200 font-medium tabular-nums", paying && "bg-primary/80")}
+        className={cn(
+          "w-full transition-all duration-200 font-medium tabular-nums",
+          paying && "bg-primary/80",
+        )}
         onClick={() => {
           if (!checkout.keyId) {
             gooeyToast.error("Razorpay key not configured on the client.");
@@ -180,7 +202,9 @@ function CheckoutOutput({ output }: { output: unknown }) {
                 const verified = await verifyPaymentOnServer(payload);
                 if (!verified) {
                   setPaying(false);
-                  gooeyToast.error("Payment could not be verified. Please contact support.");
+                  gooeyToast.error(
+                    "Payment could not be verified. Please contact support.",
+                  );
                   return;
                 }
                 localStorage.setItem(`rzp_paid_${checkout.orderId}`, "true");
@@ -242,9 +266,9 @@ function MiniProductCard({ p }: { p: MiniProduct }) {
         )}
       </div>
       <p className="line-clamp-2 font-medium">{p.name}</p>
-      <p className="text-muted-foreground">{formatPaise(p.price)}</p>
+      <p className="text-muted-foreground font-mono">{formatPaise(p.price)}</p>
       {typeof p.confidence === "number" && (
-        <p className="mt-0.5 text-muted-foreground">
+        <p className="mt-0.5 text-muted-foreground text-[10px]">
           {Math.round(p.confidence * 100)}% buy this with {p.basedOnProductName}
         </p>
       )}
@@ -306,7 +330,7 @@ function TurnToolResults({ toolResults }: { toolResults: ToolResult[] }) {
           return (
             <p
               key={i}
-              className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
+              className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive"
             >
               {String((result.output as { error: string }).error)}
             </p>
@@ -317,6 +341,33 @@ function TurnToolResults({ toolResults }: { toolResults: ToolResult[] }) {
     </div>
   );
 }
+
+const STARTER_PROMPTS = [
+  {
+    icon: Search,
+    title: "Running Shoes",
+    prompt: "Find running shoes under ₹4,000",
+    color: "text-blue-500 bg-blue-500/10",
+  },
+  {
+    icon: Sparkles,
+    title: "Recommendations",
+    prompt: "What deals or recommendations do you have?",
+    color: "text-amber-500 bg-amber-500/10",
+  },
+  {
+    icon: Package,
+    title: "Apparel & Accessories",
+    prompt: "Show fleece hoodies & wireless fitness trackers",
+    color: "text-purple-500 bg-purple-500/10",
+  },
+  {
+    icon: CreditCard,
+    title: "Instant Checkout",
+    prompt: "Checkout my cart now",
+    color: "text-emerald-500 bg-emerald-500/10",
+  },
+];
 
 export function AIDrawer() {
   const { isOpen, setOpen } = useAIDrawer();
@@ -339,7 +390,11 @@ export function AIDrawer() {
       fetch("/api/agent/chat")
         .then((res) => res.json())
         .then((data) => {
-          if (data.turns && Array.isArray(data.turns) && data.turns.length > 0) {
+          if (
+            data.turns &&
+            Array.isArray(data.turns) &&
+            data.turns.length > 0
+          ) {
             setTurns(data.turns);
             scrollToBottom();
           }
@@ -363,8 +418,8 @@ export function AIDrawer() {
     }
   }
 
-  async function sendMessage() {
-    const message = input.trim();
+  async function sendMessage(overrideMessage?: string) {
+    const message = (overrideMessage || input).trim();
     if (!message || sending) return;
 
     setInput("");
@@ -445,31 +500,11 @@ export function AIDrawer() {
       if (cartToolFired) await refresh();
     } catch (err) {
       const errorObj = err as any;
-      const statusCode =
-        errorObj?.status ??
-        errorObj?.statusCode ??
-        errorObj?.response?.status ??
-        errorObj?.status_code;
       const rawMsg = errorObj?.message ?? "";
-
       let friendlyMsg = rawMsg || "Something went wrong. Please try again.";
-      if (
-        statusCode === 429 ||
-        rawMsg.includes("429") ||
-        rawMsg.toLowerCase().includes("rate limit") ||
-        rawMsg.toLowerCase().includes("tpm")
-      ) {
-        friendlyMsg =
-          "The AI assistant is receiving a high volume of requests right now. Please wait a few seconds and try again.";
-      }
 
-      // 1. Show user-friendly toast alert
       gooeyToast.error(friendlyMsg);
-
-      // 2. Restore failed message back to input box for easy retry
       setInput(message);
-
-      // 3. Remove the failed user & assistant pending turns from UI state to keep chat history clean
       setTurns((prev) => prev.slice(0, -2));
     } finally {
       setSending(false);
@@ -481,19 +516,21 @@ export function AIDrawer() {
     <Sheet open={isOpen} onOpenChange={setOpen}>
       <SheetContent
         side="right"
-        className="flex h-full w-full flex-col gap-0 p-0 sm:max-w-md"
+        className="flex h-full w-full flex-col gap-0 p-0 sm:max-w-md bg-background border-l shadow-2xl"
       >
-        <SheetHeader className="shrink-0 border-b p-4">
+        {/* Header */}
+        <SheetHeader className="shrink-0 border-b p-4 pr-12 bg-card">
           <div className="flex items-center justify-between">
-            <SheetTitle className="flex items-center gap-2 text-base font-semibold">
-              <Sparkles className="size-4 text-primary" /> Shop with AI
+            <SheetTitle className="flex items-center gap-2 font-bold tracking-tight">
+              <span>Shop with AI</span>
             </SheetTitle>
+
             <Button
               variant="outline"
               size="sm"
               onClick={handleNewSession}
               disabled={sending}
-              className="h-8 gap-1.5 text-xs px-3 shadow-2xs font-medium"
+              className="h-8 gap-1.5 text-xs px-3 shadow-2xs font-medium border-primary/20"
               title="Start a new chat session"
             >
               <Plus className="size-3.5 text-muted-foreground" />
@@ -502,98 +539,143 @@ export function AIDrawer() {
           </div>
         </SheetHeader>
 
-        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4">
-          <div className="space-y-4 py-4">
-            {turns.length === 0 && (
-              <div className="space-y-3">
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  I&apos;m your Razorpay AI Sales Assistant. Ask me about products, custom bundles, deals, or instant checkout.
-                </p>
-                <div className="flex flex-wrap gap-1.5 pt-1">
-                  {[
-                    "Find running shoes under ₹4,000",
-                    "What deals or recommendations do you have?",
-                    "Checkout my cart",
-                  ].map((chip) => (
-                    <button
-                      key={chip}
-                      onClick={() => {
-                        setInput(chip);
-                        setTimeout(() => {
-                          const form = document.querySelector("#ai-chat-form") as HTMLFormElement;
-                          form?.requestSubmit();
-                        }, 50);
-                      }}
-                      className="action-chip"
-                    >
-                      <Sparkles className="size-3" />
-                      <span>{chip}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-            {turns.map((turn, i) => {
-              const hasText = Boolean(turn.text && turn.text.trim());
-              const hasTools = turn.toolResults && turn.toolResults.length > 0;
-              if (!hasText && !hasTools && !turn.pending) return null;
-
-              return (
-                <div
-                  key={i}
-                  className={
-                    turn.role === "user"
-                      ? "flex justify-end"
-                      : "flex justify-start"
-                  }
-                >
-                  <div
-                    className={cn(
-                      "break-words [word-break:break-word] overflow-hidden text-sm",
-                      turn.role === "user"
-                        ? "max-w-[85%] rounded-2xl bg-primary px-3.5 py-2 text-primary-foreground"
-                        : "max-w-[95%] rounded-2xl bg-muted px-3.5 py-2",
-                    )}
-                  >
-                    {turn.pending ? (
-                      <span className="text-muted-foreground">Thinking...</span>
-                    ) : (
-                      <FormattedText text={turn.text} />
-                    )}
-                    {turn.toolResults.length > 0 && (
-                      <TurnToolResults toolResults={turn.toolResults} />
-                    )}
+        {/* Chat History & Starter Hero */}
+        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-4 space-y-4">
+          {turns.length === 0 && (
+            <div className="space-y-5 py-2">
+              {/* Hero Assistant Welcome Card */}
+              <div className="rounded-2xl border bg-card p-4 space-y-3 shadow-2xs">
+                <div className="flex items-center gap-3">
+                  <div className="flex size-10 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-sm shrink-0">
+                    <Sparkles className="size-5 text-amber-400 fill-amber-400/20" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-sm text-foreground">
+                      AI Assistant
+                    </h3>
+                    <p className="text-[11px] text-muted-foreground">
+                      Personalized Shopping & Instant Checkout
+                    </p>
                   </div>
                 </div>
-              );
-            })}
-            <div ref={bottomRef} />
-          </div>
+                <p className="text-xs text-muted-foreground leading-relaxed pt-1 border-t">
+                  I can search products, compare prices, answer specs, manage
+                  your cart, and generate instant Razorpay checkouts.
+                </p>
+              </div>
+
+              {/* Interactive Starter Cards Grid */}
+              <div className="space-y-2">
+                <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider px-1">
+                  Suggested Prompts
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {STARTER_PROMPTS.map((sp) => {
+                    const Icon = sp.icon;
+                    return (
+                      <button
+                        key={sp.title}
+                        onClick={() => sendMessage(sp.prompt)}
+                        className="group flex flex-col justify-between p-3 rounded-xl border bg-card hover:bg-muted/40 hover:border-primary/40 text-left transition-all shadow-2xs"
+                      >
+                        <div className="flex items-center justify-between w-full mb-1">
+                          <div
+                            className={cn(
+                              "p-1.5 rounded-lg shrink-0",
+                              sp.color,
+                            )}
+                          >
+                            <Icon className="size-3.5" />
+                          </div>
+                          <ArrowUpRight className="size-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </div>
+                        <div>
+                          <p className="font-semibold text-xs text-foreground group-hover:text-primary transition-colors">
+                            {sp.title}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground line-clamp-1 mt-0.5">
+                            {sp.prompt}
+                          </p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Conversation Turns */}
+          {turns.map((turn, i) => {
+            const hasText = Boolean(turn.text && turn.text.trim());
+            const hasTools = turn.toolResults && turn.toolResults.length > 0;
+            if (!hasText && !hasTools && !turn.pending) return null;
+
+            return (
+              <div
+                key={i}
+                className={
+                  turn.role === "user"
+                    ? "flex justify-end"
+                    : "flex justify-start"
+                }
+              >
+                <div
+                  className={cn(
+                    "break-words [word-break:break-word] overflow-hidden text-xs",
+                    turn.role === "user"
+                      ? "max-w-[85%] rounded-2xl rounded-tr-xs bg-primary px-4 py-2.5 text-primary-foreground shadow-2xs"
+                      : "max-w-[95%] rounded-2xl rounded-tl-xs bg-muted/60 border px-4 py-3 shadow-2xs",
+                  )}
+                >
+                  {turn.pending ? (
+                    <span className="text-muted-foreground flex items-center gap-1.5 font-medium">
+                      <Sparkles className="size-3.5 animate-spin text-amber-500" />
+                      <span>Thinking...</span>
+                    </span>
+                  ) : (
+                    <FormattedText text={turn.text} />
+                  )}
+                  {turn.toolResults.length > 0 && (
+                    <TurnToolResults toolResults={turn.toolResults} />
+                  )}
+                </div>
+              </div>
+            );
+          })}
+          <div ref={bottomRef} />
         </div>
 
-        <div className="shrink-0 border-t bg-background p-3">
+        {/* Re-imagined Sleek Floating Input Bar */}
+        <div className="shrink-0 border-t bg-card p-3 space-y-1.5">
           <form
             id="ai-chat-form"
-            className="flex gap-2"
             onSubmit={(e) => {
               e.preventDefault();
               sendMessage();
             }}
+            className="relative flex items-center rounded-xl border bg-background px-3 py-1.5 shadow-2xs focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary transition-all"
           >
             <Input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask about products, deals, or checkout..."
+              placeholder="Ask AI to find products, compare prices, or checkout..."
               disabled={sending}
+              className="flex-1 bg-transparent border-0 p-0 h-8 text-xs focus-visible:ring-0 placeholder:text-muted-foreground/70 outline-none shadow-none"
             />
             <Button
               type="submit"
-              size="icon"
+              size="icon-sm"
               disabled={sending || !input.trim()}
+              className="size-7 rounded-lg bg-primary text-primary-foreground shrink-0 ml-2 transition-transform active:scale-95 disabled:opacity-30"
             >
-              <Send className="size-4" />
+              <ArrowUp className="size-3.5" />
             </Button>
           </form>
+
+          <p className="text-[10px] text-center text-muted-foreground font-mono">
+            AI can make mistakes. Verify important details.
+          </p>
         </div>
       </SheetContent>
     </Sheet>

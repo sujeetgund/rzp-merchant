@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { auditLogs, agentSessions } from "@/lib/db/schema";
+import { auditLogs, agentSessions, user } from "@/lib/db/schema";
 import { desc, eq, gte } from "drizzle-orm";
 
 export const runtime = "nodejs";
@@ -21,6 +21,9 @@ export interface AgentActivityItem {
 
 export interface SessionActivityGroup {
   sessionId: string;
+  userId?: string | null;
+  userName?: string | null;
+  userEmail?: string | null;
   lastActiveAt: string;
   createdAt: string;
   activities: AgentActivityItem[];
@@ -39,11 +42,15 @@ async function fetchSessionGroups(): Promise<SessionActivityGroup[]> {
       createdAt: auditLogs.createdAt,
       sessionCreatedAt: agentSessions.createdAt,
       sessionLastActiveAt: agentSessions.lastActiveAt,
+      userId: agentSessions.userId,
+      userName: user.name,
+      userEmail: user.email,
     })
     .from(auditLogs)
     .leftJoin(agentSessions, eq(auditLogs.sessionId, agentSessions.sessionId))
+    .leftJoin(user, eq(agentSessions.userId, user.id))
     .orderBy(desc(auditLogs.createdAt))
-    .limit(100);
+    .limit(150);
 
   const groupMap = new Map<string, SessionActivityGroup>();
 
@@ -52,6 +59,9 @@ async function fetchSessionGroups(): Promise<SessionActivityGroup[]> {
     if (!group) {
       group = {
         sessionId: log.sessionId,
+        userId: log.userId,
+        userName: log.userName,
+        userEmail: log.userEmail,
         lastActiveAt: (log.sessionLastActiveAt ?? log.createdAt).toISOString(),
         createdAt: (log.sessionCreatedAt ?? log.createdAt).toISOString(),
         activities: [],
@@ -92,7 +102,6 @@ export async function GET() {
       const interval = setInterval(async () => {
         if (!isAlive) return;
         try {
-          // Check for logs created after lastCheckTime
           const newLogs = await db
             .select()
             .from(auditLogs)
@@ -105,7 +114,6 @@ export async function GET() {
             const updatedGroups = await fetchSessionGroups();
             controller.enqueue(sseEvent("update", updatedGroups));
           } else {
-            // Heartbeat
             controller.enqueue(sseEvent("ping", { time: new Date().toISOString() }));
           }
         } catch (err) {
@@ -113,7 +121,6 @@ export async function GET() {
         }
       }, 3000);
 
-      // Clean up when connection closes
       return () => {
         isAlive = false;
         clearInterval(interval);

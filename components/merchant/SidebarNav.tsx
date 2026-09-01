@@ -12,6 +12,7 @@ import {
   ShieldCheck,
   Search,
   Command,
+  Activity,
 } from "lucide-react";
 import {
   Sidebar,
@@ -30,6 +31,7 @@ import { logoutAction } from "@/app/(merchant)/actions";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/dashboard/agent-activity", label: "Agent Activity", icon: Activity },
   { href: "/products", label: "Products", icon: Package },
   { href: "/orders", label: "Orders", icon: ShoppingCart },
 ];
@@ -53,7 +55,7 @@ export function SidebarNav() {
           </div>
           <div>
             <h2 className="text-sm font-bold leading-none tracking-tight text-sidebar-foreground">rzp Merchant</h2>
-            <p className="mt-1 text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Autonomous OS</p>
+            <p className="mt-1 text-[10px] font-medium text-muted-foreground tracking-wide">Merchant Control</p>
           </div>
         </div>
       </SidebarHeader>
@@ -140,7 +142,7 @@ export function SidebarNav() {
           </div>
           <div className="flex-1 min-w-0">
             <p className="truncate text-xs font-semibold text-sidebar-foreground">Demo Merchant</p>
-            <p className="truncate text-[10px] font-mono text-muted-foreground">currency: INR (tnum)</p>
+            <p className="truncate text-[10px] text-muted-foreground">Currency: INR (₹)</p>
           </div>
           <ShieldCheck className="size-4 text-emerald-400 shrink-0" />
         </div>

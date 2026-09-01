@@ -137,7 +137,7 @@ export function UserProfileModal({ isOpen, onClose }: UserProfileModalProps) {
   return (
     <Dialog open={isOpen} onOpenChange={(val) => !val && onClose()}>
       <DialogContent className="sm:max-w-md bg-card border-border shadow-xl p-0 overflow-hidden">
-        <DialogHeader className="p-5 pb-3 border-b">
+        <DialogHeader className="p-5 pb-3 border-b pr-12">
           <DialogTitle className="text-lg font-bold tracking-tight">Account Settings</DialogTitle>
           {/* Tab Navigation */}
           <div className="flex gap-4 pt-3 text-xs font-medium border-b border-transparent">
