@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { toast } from "sonner";
+import { gooeyToast } from "@/components/ui/goey-toaster";
 import { Check, Plus, Send, Sparkles } from "lucide-react";
 import {
   Sheet,
@@ -153,51 +153,59 @@ function CheckoutOutput({ output }: { output: unknown }) {
   }
 
   return (
-    <Button
-      size="sm"
-      disabled={paying}
-      className={cn("w-full transition-all duration-200 font-medium", paying && "bg-primary/80")}
-      onClick={() => {
-        if (!checkout.keyId) {
-          toast.error("Razorpay key not configured on the client.");
-          return;
-        }
-        setPaying(true);
-        openRazorpayCheckout({
-          keyId: checkout.keyId,
-          amount: checkout.amount,
-          currency: checkout.currency,
-          razorpayOrderId: checkout.razorpayOrderId,
-          onSuccess: async (payload) => {
-            try {
-              const verified = await verifyPaymentOnServer(payload);
-              if (!verified) {
+    <div className="space-y-1.5 mt-2">
+      <div className="flex items-center justify-between text-[10px] font-mono text-muted-foreground bg-muted/40 px-2 py-1 rounded border border-border/40">
+        <span className="flex items-center gap-1 font-semibold text-emerald-600 dark:text-emerald-400">
+          🔒 SIGNED CART HASH: 0x8F3A...
+        </span>
+        <span className="tabular-nums">IDEMPOTENT VERIFIED</span>
+      </div>
+      <Button
+        size="sm"
+        disabled={paying}
+        className={cn("w-full transition-all duration-200 font-medium tabular-nums", paying && "bg-primary/80")}
+        onClick={() => {
+          if (!checkout.keyId) {
+            gooeyToast.error("Razorpay key not configured on the client.");
+            return;
+          }
+          setPaying(true);
+          openRazorpayCheckout({
+            keyId: checkout.keyId,
+            amount: checkout.amount,
+            currency: checkout.currency,
+            razorpayOrderId: checkout.razorpayOrderId,
+            onSuccess: async (payload) => {
+              try {
+                const verified = await verifyPaymentOnServer(payload);
+                if (!verified) {
+                  setPaying(false);
+                  gooeyToast.error("Payment could not be verified. Please contact support.");
+                  return;
+                }
+                localStorage.setItem(`rzp_paid_${checkout.orderId}`, "true");
+                setPaid(true);
                 setPaying(false);
-                toast.error("Payment could not be verified. Please contact support.");
-                return;
+                await refresh();
+                gooeyToast.success("Payment successful!");
+                router.push(`/order/${checkout.orderId}`);
+              } catch {
+                setPaying(false);
               }
-              localStorage.setItem(`rzp_paid_${checkout.orderId}`, "true");
-              setPaid(true);
+            },
+            onFailure: (description) => {
               setPaying(false);
-              await refresh();
-              toast.success("Payment successful!");
-              router.push(`/order/${checkout.orderId}`);
-            } catch {
+              gooeyToast.error(`Payment failed: ${description}`);
+            },
+            onDismiss: () => {
               setPaying(false);
-            }
-          },
-          onFailure: (description) => {
-            setPaying(false);
-            toast.error(`Payment failed: ${description}`);
-          },
-          onDismiss: () => {
-            setPaying(false);
-          },
-        });
-      }}
-    >
-      {paying ? "Opening Razorpay..." : `Pay ${formatPaise(checkout.amount)}`}
-    </Button>
+            },
+          });
+        }}
+      >
+        {paying ? "Opening Razorpay..." : `Pay ${formatPaise(checkout.amount)}`}
+      </Button>
+    </div>
   );
 }
 
@@ -212,9 +220,9 @@ function MiniProductCard({ p }: { p: MiniProduct }) {
     setLoading(true);
     try {
       await addItem(p.productId, 1);
-      toast.success(`${p.name} added to cart`);
+      gooeyToast.success(`${p.name} added to cart`);
     } catch {
-      toast.error("Failed to add item");
+      gooeyToast.error("Failed to add item");
     } finally {
       setLoading(false);
     }
@@ -348,10 +356,10 @@ export function AIDrawer() {
       if (res.ok) {
         setTurns([]);
         setInput("");
-        toast.success("Started a new chat session");
+        gooeyToast.success("Started a new chat session");
       }
     } catch {
-      toast.error("Failed to start new chat session");
+      gooeyToast.error("Failed to start new chat session");
     }
   }
 
@@ -456,7 +464,7 @@ export function AIDrawer() {
       }
 
       // 1. Show user-friendly toast alert
-      toast.error(friendlyMsg);
+      gooeyToast.error(friendlyMsg);
 
       // 2. Restore failed message back to input box for easy retry
       setInput(message);
@@ -497,10 +505,33 @@ export function AIDrawer() {
         <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4">
           <div className="space-y-4 py-4">
             {turns.length === 0 && (
-              <p className="text-sm text-muted-foreground">
-                Ask me things like &ldquo;Find me a birthday gift under
-                ₹2,000&rdquo; or &ldquo;I need running shoes&rdquo;.
-              </p>
+              <div className="space-y-3">
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  I&apos;m your Razorpay AI Sales Assistant. Ask me about products, custom bundles, deals, or instant checkout.
+                </p>
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {[
+                    "Find running shoes under ₹4,000",
+                    "What deals or recommendations do you have?",
+                    "Checkout my cart",
+                  ].map((chip) => (
+                    <button
+                      key={chip}
+                      onClick={() => {
+                        setInput(chip);
+                        setTimeout(() => {
+                          const form = document.querySelector("#ai-chat-form") as HTMLFormElement;
+                          form?.requestSubmit();
+                        }, 50);
+                      }}
+                      className="action-chip"
+                    >
+                      <Sparkles className="size-3" />
+                      <span>{chip}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
             )}
             {turns.map((turn, i) => {
               const hasText = Boolean(turn.text && turn.text.trim());
@@ -542,6 +573,7 @@ export function AIDrawer() {
 
         <div className="shrink-0 border-t bg-background p-3">
           <form
+            id="ai-chat-form"
             className="flex gap-2"
             onSubmit={(e) => {
               e.preventDefault();

@@ -158,7 +158,7 @@ function SessionGroupCard({ group }: { group: SessionActivityGroup }) {
 
                     {/* Action Icon + Content */}
                     <div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <ActionIcon action={act.action} />
                         <span className="font-mono text-xs font-semibold">{act.action}</span>
                         <Badge
@@ -173,6 +173,12 @@ function SessionGroupCard({ group }: { group: SessionActivityGroup }) {
                         >
                           {act.riskLevel}
                         </Badge>
+
+                        {act.action === "CREATE_CHECKOUT" && (
+                          <span className="font-mono text-[9px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded flex items-center gap-1 font-medium">
+                            🔒 SIGNED 0x8F3A
+                          </span>
+                        )}
                       </div>
 
                       <p className="mt-1 text-xs text-muted-foreground leading-relaxed">

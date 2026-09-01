@@ -4,8 +4,10 @@ import { auditLogs, agentSessions } from "@/lib/db/schema";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatPaise } from "@/lib/format";
 import { AgentActivityTrail } from "@/components/merchant/AgentActivityTrail";
+import { StripeConsoleCard } from "@/components/merchant/StripeConsoleCard";
 import type { SessionActivityGroup } from "@/app/api/merchant/agent-activity/stream/route";
-import { DollarSign, ShoppingBag, TrendingUp, ShieldAlert } from "lucide-react";
+import { DollarSign, ShoppingBag, TrendingUp, ShieldAlert, ShieldCheck } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 
 export const dynamic = "force-dynamic";
 
@@ -102,33 +104,43 @@ export default async function DashboardPage() {
   return (
     <div className="flex flex-col h-[calc(100vh-4.5rem)] min-h-0 overflow-hidden space-y-4">
       {/* Header */}
-      <div className="shrink-0">
-        <h1 className="text-xl font-bold tracking-tight">Merchant Control Center</h1>
-        <p className="text-xs text-muted-foreground">
-          Autonomous sales agent telemetry, order analytics, and active session monitoring.
-        </p>
+      <div className="flex items-center justify-between shrink-0">
+        <div>
+          <h1 className="text-xl font-bold tracking-tight">Merchant Control Center</h1>
+          <p className="text-xs text-muted-foreground">
+            Linear Merchant OS · Financial Infrastructure & Autonomous Telemetry.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className="text-[11px] font-mono gap-1 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/20">
+            <ShieldCheck className="size-3" />
+            <span>AGENT POLICY: MAX 15% DISCOUNT</span>
+          </Badge>
+        </div>
       </div>
 
-      {/* Main Grid: Single-Screen / Single-VH Layout */}
+      {/* Main Grid: Single-Screen Layout */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-12 flex-1 min-h-0 overflow-hidden">
         {/* Left-most Column: Live Timestamped Agent Trail (Internal scroll inside card) */}
-        <div className="lg:col-span-7 xl:col-span-8 h-full flex flex-col min-h-0 overflow-hidden">
+        <div className="lg:col-span-7 xl:col-span-7 h-full flex flex-col min-h-0 overflow-hidden">
           <AgentActivityTrail initialGroups={initialGroups} />
         </div>
 
-        {/* Right Column: Performance Analytics & Top Products (Internal scroll if overflow) */}
-        <div className="space-y-4 lg:col-span-5 xl:col-span-4 h-full flex flex-col min-h-0 overflow-y-auto pr-1">
-          {/* Key Metrics */}
+        {/* Right Column: Key Financial Metrics, Developer Console & Top Products */}
+        <div className="space-y-4 lg:col-span-5 xl:col-span-5 h-full flex flex-col min-h-0 overflow-y-auto pr-1">
+          {/* Key Financial Metrics (Stripe tnum format) */}
           <div className="grid grid-cols-2 gap-3 shrink-0">
             <Card className="border shadow-2xs">
               <CardHeader className="p-3 pb-1">
                 <CardTitle className="flex items-center justify-between text-xs font-medium text-muted-foreground">
                   <span>Total Revenue</span>
-                  <DollarSign className="size-3.5 text-emerald-500" />
+                  <DollarSign className="size-3.5 text-primary" />
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-3 pt-0">
-                <p className="text-xl font-bold tracking-tight">{formatPaise(stats.revenue)}</p>
+                <p className="text-xl font-bold tracking-tight font-mono tabular-nums text-foreground">
+                  {formatPaise(stats.revenue)}
+                </p>
                 <p className="mt-0.5 text-[10px] text-muted-foreground">Settled paid orders</p>
               </CardContent>
             </Card>
@@ -137,15 +149,20 @@ export default async function DashboardPage() {
               <CardHeader className="p-3 pb-1">
                 <CardTitle className="flex items-center justify-between text-xs font-medium text-muted-foreground">
                   <span>Paid Orders</span>
-                  <ShoppingBag className="size-3.5 text-blue-500" />
+                  <ShoppingBag className="size-3.5 text-emerald-500" />
                 </CardTitle>
               </CardHeader>
               <CardContent className="p-3 pt-0">
-                <p className="text-xl font-bold tracking-tight">{stats.orderCount}</p>
+                <p className="text-xl font-bold tracking-tight font-mono tabular-nums text-foreground">
+                  {stats.orderCount}
+                </p>
                 <p className="mt-0.5 text-[10px] text-muted-foreground">Completed checkouts</p>
               </CardContent>
             </Card>
           </div>
+
+          {/* Stripe Developer Console Composite IDE Card */}
+          <StripeConsoleCard />
 
           {/* High Risk Events Metric */}
           <Card className="border shadow-2xs bg-amber-500/5 dark:bg-amber-500/10 border-amber-500/20 shrink-0">
@@ -156,24 +173,24 @@ export default async function DashboardPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="p-3 pt-0">
-              <p className="text-lg font-bold text-amber-800 dark:text-amber-300">
+              <p className="text-lg font-bold font-mono tabular-nums text-amber-800 dark:text-amber-300">
                 {stats.highRiskLogsCount} High-Risk Flags
               </p>
               <p className="mt-0.5 text-[10px] text-amber-700/80 dark:text-amber-400/80 leading-relaxed">
-                Log entries marked high-risk (discounts, custom checkouts, stock mutations).
+                Autonomous AI execution threshold breaches or custom checkouts.
               </p>
             </CardContent>
           </Card>
 
           {/* Top Selling Products */}
-          <Card className="border shadow-2xs flex-1 min-h-0 flex flex-col overflow-hidden">
-            <CardHeader className="p-3 pb-2 border-b shrink-0">
+          <Card className="border shadow-2xs shrink-0">
+            <CardHeader className="p-3 pb-2 border-b">
               <CardTitle className="flex items-center justify-between text-xs font-semibold">
                 <span>Top Products by Revenue</span>
                 <TrendingUp className="size-3.5 text-emerald-600" />
               </CardTitle>
             </CardHeader>
-            <CardContent className="p-3 flex-1 overflow-y-auto">
+            <CardContent className="p-3">
               {stats.topProducts.length === 0 ? (
                 <p className="text-xs text-muted-foreground py-4 text-center">No order items recorded yet.</p>
               ) : (
@@ -181,12 +198,12 @@ export default async function DashboardPage() {
                   {stats.topProducts.map((p, idx) => (
                     <div key={p.name} className="flex items-center justify-between text-xs">
                       <div className="flex items-center gap-2 overflow-hidden">
-                        <span className="flex size-4.5 shrink-0 items-center justify-center rounded bg-muted text-[9px] font-bold">
+                        <span className="flex size-4.5 shrink-0 items-center justify-center rounded bg-muted text-[9px] font-mono font-bold">
                           {idx + 1}
                         </span>
                         <span className="truncate font-medium text-[11px]">{p.name}</span>
                       </div>
-                      <div className="shrink-0 text-right font-mono text-[11px]">
+                      <div className="shrink-0 text-right font-mono tabular-nums text-[11px]">
                         <span className="font-semibold">{formatPaise(p.revenue)}</span>
                         <span className="ml-1 text-[9px] text-muted-foreground">({p.unitsSold})</span>
                       </div>

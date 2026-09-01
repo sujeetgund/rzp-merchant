@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { toast } from "sonner";
+import { gooeyToast } from "@/components/ui/goey-toaster";
 import { Check, Sparkles, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -39,7 +39,7 @@ export function ProductDetailActions({ product }: { product: Product }) {
       });
       const data = await res.json();
       if (!res.ok || data.error) {
-        toast.error(data.error ?? "Failed to initialize Buy Now checkout.");
+        gooeyToast.error(data.error ?? "Failed to initialize Buy Now checkout.");
         setBuying(false);
         return;
       }
@@ -54,19 +54,19 @@ export function ProductDetailActions({ product }: { product: Product }) {
           const verified = await verifyPaymentOnServer(payload);
           setBuying(false);
           if (verified) {
-            toast.success("Order paid successfully!");
+            gooeyToast.success("Order paid successfully!");
             window.location.href = `/order/${data.orderId}`;
           }
         },
         onFailure: (desc) => {
           setBuying(false);
-          toast.error(desc);
+          gooeyToast.error(desc);
         },
         onDismiss: () => setBuying(false),
       });
     } catch {
       setBuying(false);
-      toast.error("Failed to start checkout");
+      gooeyToast.error("Failed to start checkout");
     }
   };
 
@@ -98,7 +98,7 @@ export function ProductDetailActions({ product }: { product: Product }) {
           onClick={() =>
             startTransition(async () => {
               await addItem(product.id, 1, variantId);
-              toast.success(`${product.name} added to cart`);
+              gooeyToast.success(`${product.name} added to cart`);
             })
           }
         >

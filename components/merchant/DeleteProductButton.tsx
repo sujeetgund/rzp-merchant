@@ -1,7 +1,7 @@
 "use client";
 
 import { useTransition } from "react";
-import { toast } from "sonner";
+import { gooeyToast } from "@/components/ui/goey-toaster";
 import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { deleteProductAction } from "@/app/(merchant)/products/actions";
@@ -19,14 +19,14 @@ export function DeleteProductButton({ productId, name }: { productId: string; na
         startTransition(async () => {
           const result = await deleteProductAction(productId);
           if (result.error) {
-            toast.error(result.error);
+            gooeyToast.error(result.error);
           } else {
-            toast.success(`${name} deleted`);
+            gooeyToast.success(`${name} deleted`);
           }
         });
       }}
     >
-      <Trash2 className="size-4" />
+      <Trash2 className="size-4 text-destructive" />
     </Button>
   );
 }

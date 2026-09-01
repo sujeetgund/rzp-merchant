@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import { Toaster } from "sonner";
+import { GooeyToaster } from "@/components/ui/goey-toaster";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -14,19 +14,19 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "rzp Merchant",
-  description: "An AI-native merchant storefront powered by Razorpay.",
+  title: "rzp Store & Merchant OS",
+  description: "A clean, modern e-commerce storefront powered by Razorpay.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">
+      <body className="min-h-full flex flex-col bg-background text-foreground font-sans">
         {children}
-        <Toaster richColors position="top-center" />
+        <GooeyToaster position="bottom-right" />
       </body>
     </html>
   );
