@@ -6,16 +6,68 @@ import { db } from "@/lib/db";
 import { orderItems, orders, products } from "@/lib/db/schema";
 import { Button } from "@/components/ui/button";
 import { formatPaise } from "@/lib/format";
+import { verifyPaymentLinkSignature } from "@/lib/razorpay/client";
+import { fulfillOrderAndReduceInventory } from "@/lib/commerce/inventory";
 
 interface OrderPageProps {
   params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }
 
 export const dynamic = "force-dynamic";
 
-export default async function OrderConfirmationPage({ params }: OrderPageProps) {
+/**
+ * Razorpay Payment Links have no client-side `handler` callback — payment
+ * happens entirely on Razorpay's hosted page. The only local-dev-reachable
+ * confirmation is the signed redirect back to `callback_url`, which we
+ * verify and fulfill here (the real webhook can't reach localhost, and
+ * still runs as the production-correct path when it can).
+ */
+async function verifyAndFulfillFromRedirect(
+  orderId: string,
+  currentStatus: string,
+  search: Record<string, string | string[] | undefined>
+) {
+  if (currentStatus === "paid") return;
+
+  const paymentId = search.razorpay_payment_id;
+  const linkId = search.razorpay_payment_link_id;
+  const linkRefId = search.razorpay_payment_link_reference_id;
+  const linkStatus = search.razorpay_payment_link_status;
+  const signature = search.razorpay_signature;
+
+  if (
+    typeof paymentId !== "string" ||
+    typeof linkId !== "string" ||
+    typeof linkRefId !== "string" ||
+    typeof linkStatus !== "string" ||
+    typeof signature !== "string"
+  ) {
+    return;
+  }
+
+  const isValid = verifyPaymentLinkSignature({
+    paymentLinkId: linkId,
+    paymentLinkReferenceId: linkRefId,
+    paymentLinkStatus: linkStatus,
+    paymentId,
+    signature,
+  });
+
+  if (isValid && linkStatus === "paid") {
+    await fulfillOrderAndReduceInventory(orderId, paymentId);
+  }
+}
+
+export default async function OrderConfirmationPage({ params, searchParams }: OrderPageProps) {
   const { id } = await params;
-  const [order] = await db.select().from(orders).where(eq(orders.id, id)).limit(1);
+  const search = await searchParams;
+
+  let [order] = await db.select().from(orders).where(eq(orders.id, id)).limit(1);
+  if (!order) notFound();
+
+  await verifyAndFulfillFromRedirect(order.id, order.status, search);
+  [order] = await db.select().from(orders).where(eq(orders.id, id)).limit(1);
   if (!order) notFound();
 
   const items = await db

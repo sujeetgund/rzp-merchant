@@ -1,10 +1,14 @@
 import { db } from "@/lib/db";
-import { products, orderItems, checkoutSessions, auditLogs } from "@/lib/db/schema";
+import { products, orderItems, orders, checkoutSessions, auditLogs } from "@/lib/db/schema";
 import { and, asc, eq, ilike, lte, or, sql } from "drizzle-orm";
 import { redis } from "@/lib/redis/client";
 import { getRazorpay } from "@/lib/razorpay/client";
+import { evaluateCheckoutPolicy } from "@/lib/agent/policy";
+import { fulfillOrderAndReduceInventory } from "@/lib/commerce/inventory";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 
 export interface MCPToolDefinition {
   name: string;
@@ -124,10 +128,47 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
   },
 ];
 
+/**
+ * Creates a real `orders` (+ `order_items`) row backing a checkout session's
+ * Razorpay order, so ACP/MCP-driven sales show up in the merchant's Orders
+ * dashboard exactly like storefront sales, and so the existing webhook +
+ * payment-link-redirect fulfillment paths (which key off `orders`) work for
+ * this channel too instead of needing a parallel implementation.
+ */
+async function createPendingOrderForCheckoutSession(
+  cs: typeof checkoutSessions.$inferSelect,
+  rzpOrderId: string,
+  userId: string | null
+) {
+  const items = (cs.items as { productId: string; quantity: number; price: number }[]) || [];
+  const [order] = await db
+    .insert(orders)
+    .values({
+      sessionId: cs.sessionId,
+      userId,
+      razorpayOrderId: rzpOrderId,
+      amount: cs.amount,
+      currency: cs.currency,
+      status: "created",
+      idempotencyKey: `acp_${cs.id}`,
+    })
+    .returning();
+
+  await db.insert(orderItems).values(
+    items.map((item) => ({
+      orderId: order.id,
+      productId: item.productId,
+      quantity: item.quantity,
+      price: item.price,
+    }))
+  );
+
+  return order;
+}
+
 export async function executeMCPTool(name: string, args: Record<string, any>, options?: { userId?: string; sessionId?: string }) {
   const sessionId = options?.sessionId || `mcp_sess_${Date.now()}`;
   const userId = options?.userId || null;
-  const razorpay = getRazorpay();
 
   switch (name) {
     case "search_products": {
@@ -338,16 +379,42 @@ export async function executeMCPTool(name: string, args: Record<string, any>, op
       const [cs] = await db.select().from(checkoutSessions).where(eq(checkoutSessions.id, checkoutSessionId));
       if (!cs) throw new Error(`Checkout session not found: ${checkoutSessionId}`);
 
-      const mandate = cs.buyerMandate as {
-        maxAmount: number;
-        allowedCategories?: string[];
-        humanApprovalThreshold?: number;
-        isSingleUse?: boolean;
-      } | null;
+      const mandate = cs.buyerMandate as { maxAmount: number; allowedCategories?: string[] } | null;
       const totalINR = cs.amount / 100;
       const items = (cs.items as any[]) || [];
 
-      // 1. EXPIRATION CHECK
+      // IDEMPOTENCY: never re-charge or re-issue for a session that's already
+      // resolved. Retries (network blips, an eager agent calling twice) must
+      // return the prior result, not create a second Razorpay order.
+      if (cs.status === "PAID") {
+        return {
+          status: "PAID",
+          razorpayOrderId: cs.razorpayOrderId,
+          amountINR: totalINR,
+          currency: "INR",
+          message: "Already completed — reusing prior result (idempotent).",
+        };
+      }
+      if (cs.status === "PAYMENT_INITIATED" && cs.paymentLink) {
+        return {
+          status: "PAYMENT_INITIATED",
+          razorpayOrderId: cs.razorpayOrderId,
+          paymentLink: cs.paymentLink,
+          amountINR: totalINR,
+          message: "Payment link already generated — reusing prior result (idempotent).",
+        };
+      }
+      if (cs.status === "PAUSED_MANDATE_EXCEEDED" && cs.paymentLink) {
+        return {
+          status: "PAUSED_MANDATE_EXCEEDED",
+          razorpayOrderId: cs.razorpayOrderId,
+          paymentLink: cs.paymentLink,
+          requiresHumanApproval: true,
+          message: "Human-approval payment link already generated — reusing prior result (idempotent).",
+        };
+      }
+
+      // EXPIRATION CHECK
       if (cs.expiresAt && new Date() > new Date(cs.expiresAt)) {
         await db.insert(auditLogs).values({
           sessionId: cs.sessionId,
@@ -360,75 +427,124 @@ export async function executeMCPTool(name: string, args: Record<string, any>, op
         throw new Error(`Checkout session ${checkoutSessionId} has expired.`);
       }
 
-      // 2. BUDGET CAP CHECK
-      let violationReason: string | null = null;
-
-      if (mandate) {
-        if (totalINR > mandate.maxAmount) {
-          violationReason = `Cart total (₹${totalINR}) exceeds buyer's max budget mandate (₹${mandate.maxAmount}).`;
-        }
-
-        // 3. CATEGORY SCOPE CHECK
-        if (!violationReason && mandate.allowedCategories && mandate.allowedCategories.length > 0) {
-          const disallowed = items.find(
-            (item) => item.category && !mandate.allowedCategories!.includes("All Categories") && !mandate.allowedCategories!.includes(item.category)
-          );
-          if (disallowed) {
-            violationReason = `Item "${disallowed.name}" in category "${disallowed.category}" is outside allowed mandate categories: [${mandate.allowedCategories.join(", ")}].`;
-          }
-        }
-
-        // 4. HUMAN APPROVAL THRESHOLD CHECK
-        if (!violationReason && typeof mandate.humanApprovalThreshold === "number") {
-          const highValueItem = items.find((item) => item.price / 100 >= mandate.humanApprovalThreshold!);
-          if (highValueItem) {
-            violationReason = `Item "${highValueItem.name}" (₹${highValueItem.price / 100}) exceeds human approval threshold limit (₹${mandate.humanApprovalThreshold}).`;
-          }
-        }
+      // Live inventory check against current stock (not the cart snapshot).
+      const inventoryCheck = [];
+      for (const item of items) {
+        const [row] = await db
+          .select({ inventory: products.inventory })
+          .from(products)
+          .where(eq(products.id, item.productId));
+        inventoryCheck.push({
+          name: item.name,
+          quantity: item.quantity,
+          availableInventory: row?.inventory ?? 0,
+        });
       }
 
-      if (violationReason) {
+      const policy = await evaluateCheckoutPolicy({
+        sessionId: cs.sessionId,
+        totalInRupees: totalINR,
+        items: items.map((i) => ({ name: i.name, category: i.category, quantity: i.quantity, priceInRupees: i.price / 100 })),
+        inventoryCheck,
+        mandate,
+      });
+
+      if (!policy.allowed) {
         await db.insert(auditLogs).values({
           sessionId: cs.sessionId,
           action: "MCP_MANDATE_VIOLATION",
           input: args,
-          output: { totalINR, mandate, reason: violationReason },
-          explanation: `POLICY BLOCKED: ${violationReason}`,
-          riskLevel: "HIGH",
+          output: { totalINR, mandate, violations: policy.violations },
+          explanation: `POLICY BLOCKED: ${policy.reason}`,
+          riskLevel: policy.risk,
         });
 
-        const link = await razorpay.paymentLink.create({
-          amount: cs.amount,
-          currency: "INR",
-          accept_partial: false,
-          description: `Human Approval Needed: ${violationReason.slice(0, 80)}`,
-          customer: { name: "Agentic Buyer", email: "agent@rzp-merchant.local" },
-          notify: { sms: false, email: false },
-          callback_url: `http://localhost:3000/order/${cs.id}`,
-          callback_method: "get",
-        });
+        try {
+          const razorpay = getRazorpay();
+          const rzpOrder = await razorpay.orders.create({
+            amount: cs.amount,
+            currency: "INR",
+            receipt: `${cs.id}_mandate_override`,
+            notes: { checkoutSessionId: cs.id, sessionId: cs.sessionId, mandateViolation: "true" },
+          });
+          const order = await createPendingOrderForCheckoutSession(cs, rzpOrder.id, userId);
 
-        await db
-          .update(checkoutSessions)
-          .set({ status: "PAUSED_MANDATE_EXCEEDED", paymentLink: link.short_url })
-          .where(eq(checkoutSessions.id, checkoutSessionId));
+          const link = await razorpay.paymentLink.create({
+            amount: cs.amount,
+            currency: "INR",
+            accept_partial: false,
+            description: `Human Approval Needed: ${policy.reason.slice(0, 80)}`,
+            customer: { name: "Agentic Buyer", email: "agent@rzp-merchant.local" },
+            notify: { sms: false, email: false },
+            callback_url: `${APP_URL}/order/${order.id}`,
+            callback_method: "get",
+          });
 
-        return {
-          status: "PAUSED_MANDATE_EXCEEDED",
-          reason: violationReason,
-          requiresHumanApproval: true,
-          paymentLink: link.short_url,
-        };
+          await db
+            .update(checkoutSessions)
+            .set({ status: "PAUSED_MANDATE_EXCEEDED", razorpayOrderId: rzpOrder.id, paymentLink: link.short_url })
+            .where(eq(checkoutSessions.id, checkoutSessionId));
+
+          return {
+            status: "PAUSED_MANDATE_EXCEEDED",
+            reason: policy.reason,
+            violations: policy.violations,
+            requiresHumanApproval: true,
+            paymentLink: link.short_url,
+          };
+        } catch (err) {
+          const description =
+            (err as { error?: { description?: string } })?.error?.description ??
+            (err as Error).message ??
+            "Could not reach Razorpay";
+          await db
+            .update(checkoutSessions)
+            .set({ status: "FAILED" })
+            .where(eq(checkoutSessions.id, checkoutSessionId));
+          return {
+            status: "FAILED",
+            reason: policy.reason,
+            violations: policy.violations,
+            paymentLinkError: description,
+          };
+        }
       }
 
-      const rzpOrder = await razorpay.orders.create({
-        amount: cs.amount,
-        currency: "INR",
-        receipt: cs.id,
-        notes: { checkoutSessionId: cs.id, sessionId: cs.sessionId },
-      });
+      let rzpOrder: { id: string };
+      try {
+        const razorpay = getRazorpay();
+        rzpOrder = await razorpay.orders.create({
+          amount: cs.amount,
+          currency: "INR",
+          receipt: cs.id,
+          notes: { checkoutSessionId: cs.id, sessionId: cs.sessionId },
+        });
+      } catch (err) {
+        const description =
+          (err as { error?: { description?: string } })?.error?.description ??
+          (err as Error).message ??
+          "Could not reach Razorpay";
+        await db.update(checkoutSessions).set({ status: "FAILED" }).where(eq(checkoutSessions.id, checkoutSessionId));
+        await db.insert(auditLogs).values({
+          sessionId: cs.sessionId,
+          action: "MCP_CHECKOUT_FAILED",
+          input: args,
+          output: { error: description },
+          explanation: `Razorpay order creation failed for checkout session ${cs.id}: ${description}. No charge was made.`,
+          riskLevel: "MEDIUM",
+        });
+        return { status: "FAILED", error: `Payment provider error: ${description}` };
+      }
+
+      const order = await createPendingOrderForCheckoutSession(cs, rzpOrder.id, userId);
 
       if (mode === "direct_capture") {
+        // Approach B (see implementation_plan.md): simulated instant capture,
+        // test-mode only. No real payment happens — we mark the order paid
+        // and decrement stock directly, reusing the same fulfillment path a
+        // real webhook would trigger, so this channel and the storefront
+        // channel behave identically from here on.
+        await fulfillOrderAndReduceInventory(order.id, `sim_${rzpOrder.id}`);
         await db
           .update(checkoutSessions)
           .set({ status: "PAID", razorpayOrderId: rzpOrder.id })
@@ -438,29 +554,41 @@ export async function executeMCPTool(name: string, args: Record<string, any>, op
           sessionId: cs.sessionId,
           action: "MCP_CHECKOUT_COMPLETED",
           input: args,
-          output: { razorpayOrderId: rzpOrder.id, amountINR: totalINR },
+          output: { razorpayOrderId: rzpOrder.id, orderId: order.id, amountINR: totalINR },
           explanation: `Automated ACP Checkout Completed! Razorpay Order ${rzpOrder.id} generated for ₹${totalINR}`,
-          riskLevel: "HIGH",
+          riskLevel: policy.risk,
         });
 
         return {
           status: "PAID",
           razorpayOrderId: rzpOrder.id,
+          orderId: order.id,
           amountINR: totalINR,
           currency: "INR",
           message: "Payment completed successfully via automated test capture.",
         };
       } else {
-        const link = await razorpay.paymentLink.create({
-          amount: cs.amount,
-          currency: "INR",
-          accept_partial: false,
-          description: `Razorpay Payment for ACP Order ${checkoutSessionId}`,
-          customer: { name: "Agentic Buyer", email: "agent@rzp-merchant.local" },
-          notify: { sms: false, email: false },
-          callback_url: `http://localhost:3000/order/${cs.id}`,
-          callback_method: "get",
-        });
+        let link: { short_url: string };
+        try {
+          const razorpay = getRazorpay();
+          link = await razorpay.paymentLink.create({
+            amount: cs.amount,
+            currency: "INR",
+            accept_partial: false,
+            description: `Razorpay Payment for ACP Order ${checkoutSessionId}`,
+            customer: { name: "Agentic Buyer", email: "agent@rzp-merchant.local" },
+            notify: { sms: false, email: false },
+            callback_url: `${APP_URL}/order/${order.id}`,
+            callback_method: "get",
+          });
+        } catch (err) {
+          const description =
+            (err as { error?: { description?: string } })?.error?.description ??
+            (err as Error).message ??
+            "Could not reach Razorpay";
+          await db.update(checkoutSessions).set({ status: "FAILED" }).where(eq(checkoutSessions.id, checkoutSessionId));
+          return { status: "FAILED", error: `Payment link creation failed: ${description}` };
+        }
 
         await db
           .update(checkoutSessions)
@@ -471,14 +599,15 @@ export async function executeMCPTool(name: string, args: Record<string, any>, op
           sessionId: cs.sessionId,
           action: "MCP_PAYMENT_LINK_GENERATED",
           input: args,
-          output: { razorpayOrderId: rzpOrder.id, paymentLink: link.short_url },
+          output: { razorpayOrderId: rzpOrder.id, orderId: order.id, paymentLink: link.short_url },
           explanation: `Razorpay Payment Link generated: ${link.short_url} for ₹${totalINR}`,
-          riskLevel: "HIGH",
+          riskLevel: policy.risk,
         });
 
         return {
           status: "PAYMENT_INITIATED",
           razorpayOrderId: rzpOrder.id,
+          orderId: order.id,
           paymentLink: link.short_url,
           amountINR: totalINR,
           message: "Payment link generated for human confirmation.",

@@ -45,3 +45,26 @@ export function verifyPaymentSignature(
     secret
   );
 }
+
+/**
+ * Verifies the signature Razorpay appends to the `callback_url` redirect
+ * after a customer pays via a hosted Payment Link. This is the only local
+ * dev-reachable confirmation for the ACP payment-link flow (Act 3) — the
+ * page a human lands back on after paying has no Checkout.js `handler` to
+ * call, since payment happened entirely on Razorpay's hosted page, and the
+ * real webhook can't reach localhost either.
+ */
+export function verifyPaymentLinkSignature(params: {
+  paymentLinkId: string;
+  paymentLinkReferenceId: string;
+  paymentLinkStatus: string;
+  paymentId: string;
+  signature: string;
+}): boolean {
+  const secret = process.env.RAZORPAY_KEY_SECRET;
+  if (!secret) {
+    throw new Error("RAZORPAY_KEY_SECRET is not set. Add it to .env.");
+  }
+  const payload = `${params.paymentLinkId}|${params.paymentLinkReferenceId}|${params.paymentLinkStatus}|${params.paymentId}`;
+  return Razorpay.validateWebhookSignature(payload, params.signature, secret);
+}

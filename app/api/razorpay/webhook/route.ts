@@ -1,10 +1,18 @@
 import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { orders } from "@/lib/db/schema";
+import { orders, checkoutSessions } from "@/lib/db/schema";
 import { verifyWebhookSignature } from "@/lib/razorpay/client";
 import { logAudit } from "@/lib/agent/audit";
 import { fulfillOrderAndReduceInventory } from "@/lib/commerce/inventory";
+
+/** Mirrors an order's final status onto its ACP checkout session, if any, so GET /api/commerce/checkout/:id stays consistent. */
+async function syncCheckoutSessionStatus(razorpayOrderId: string, status: "PAID" | "FAILED") {
+  await db
+    .update(checkoutSessions)
+    .set({ status })
+    .where(eq(checkoutSessions.razorpayOrderId, razorpayOrderId));
+}
 
 interface RazorpayPaymentEntity {
   id: string;
@@ -56,6 +64,7 @@ export async function POST(request: Request) {
 
   if (body.event === "payment.captured" || body.event === "order.paid") {
     await fulfillOrderAndReduceInventory(order.id, payment.id);
+    await syncCheckoutSessionStatus(payment.order_id, "PAID");
   } else if (body.event === "payment.failed") {
     if (order.status !== "paid") {
       await db
@@ -66,6 +75,7 @@ export async function POST(request: Request) {
           updatedAt: new Date(),
         })
         .where(eq(orders.id, order.id));
+      await syncCheckoutSessionStatus(payment.order_id, "FAILED");
       await logAudit({
         sessionId: order.sessionId,
         action: "PAYMENT_FAILED",

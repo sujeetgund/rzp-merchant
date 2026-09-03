@@ -5,6 +5,7 @@ import { orderItems, orders, products } from "@/lib/db/schema";
 import { getHydratedCart } from "@/lib/cart";
 import { getRazorpay } from "@/lib/razorpay/client";
 import { logAudit } from "@/lib/agent/audit";
+import { evaluateCheckoutPolicy } from "@/lib/agent/policy";
 
 export interface CheckoutResult {
   orderId: string;
@@ -30,6 +31,38 @@ function fingerprintFor(sessionId: string, items: { productId: string; variantId
     )
     .digest("hex")
     .slice(0, 40);
+}
+
+/**
+ * Merchant-side fraud/abuse checks (rate limiting, max order amount) applied
+ * to the storefront checkout too — not just the MCP/ACP path. There's no
+ * buyer mandate here (the human confirms the purchase themselves right in
+ * the Checkout.js flow), so only hard violations block; the "requires human
+ * confirmation" signal is meaningless when a human is already the one
+ * confirming, and is intentionally ignored for this path.
+ */
+async function checkMerchantFraudSignals(
+  sessionId: string,
+  totalPaise: number,
+  items: { name: string; quantity: number; price: number }[]
+): Promise<{ error: string } | null> {
+  const policy = await evaluateCheckoutPolicy({
+    sessionId,
+    totalInRupees: totalPaise / 100,
+    items: items.map((i) => ({ name: i.name, quantity: i.quantity, priceInRupees: i.price / 100 })),
+  });
+
+  if (!policy.allowed) {
+    await logAudit({
+      sessionId,
+      action: "CREATE_CHECKOUT",
+      output: { violations: policy.violations },
+      explanation: `Checkout blocked: ${policy.reason}`,
+      riskLevel: policy.risk,
+    });
+    return { error: policy.reason };
+  }
+  return null;
 }
 
 /**
@@ -79,6 +112,9 @@ export async function createCheckoutForSession(sessionId: string, userId?: strin
       keyId: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
     };
   }
+
+  const fraudCheck = await checkMerchantFraudSignals(sessionId, cart.total, cart.items);
+  if (fraudCheck) return fraudCheck;
 
   let rzpOrder: { id: string };
   try {
@@ -173,6 +209,40 @@ export async function createDirectCheckoutForProduct(
 
   const totalAmount = product.price * quantity; // in paise
   const fingerprint = fingerprintFor(sessionId, [{ productId, variantId, quantity }]);
+
+  const [existing] = await db
+    .select()
+    .from(orders)
+    .where(eq(orders.idempotencyKey, fingerprint))
+    .limit(1);
+
+  if (existing && existing.status !== "failed" && existing.status !== "cancelled") {
+    await logAudit({
+      sessionId,
+      action: "CREATE_CHECKOUT",
+      output: {
+        orderId: existing.id,
+        razorpayOrderId: existing.razorpayOrderId,
+        directBuy: true,
+        amountInRupees: existing.amount / 100,
+        reused: true,
+      },
+      explanation: `Reused pending Buy Now order for ${product.name} (idempotency).`,
+    });
+    return {
+      orderId: existing.id,
+      razorpayOrderId: existing.razorpayOrderId!,
+      amount: existing.amount,
+      amountInRupees: existing.amount / 100,
+      currency: existing.currency,
+      keyId: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
+    };
+  }
+
+  const fraudCheck = await checkMerchantFraudSignals(sessionId, totalAmount, [
+    { name: product.name, quantity, price: product.price },
+  ]);
+  if (fraudCheck) return fraudCheck;
 
   let rzpOrder: { id: string };
   try {

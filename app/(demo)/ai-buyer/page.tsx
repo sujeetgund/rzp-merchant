@@ -10,6 +10,20 @@ import Link from "next/link";
 import { gooeyToast } from "@/components/ui/goey-toaster";
 import { formatPaise } from "@/lib/format";
 
+async function callMcp(body: unknown) {
+  // The real MCP Streamable HTTP transport requires the client to declare it
+  // accepts both response formats, even when (as here) the server is
+  // configured to always answer with plain JSON.
+  return fetch("/api/mcp", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream",
+    },
+    body: JSON.stringify(body),
+  }).then((r) => r.json());
+}
+
 interface BuyerStep {
   step: number;
   title: string;
@@ -89,11 +103,7 @@ export default function AIBuyerDemoPage() {
       };
       updateStep(0, { requestPayload: req1 });
 
-      const res1 = await fetch("/api/mcp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(req1),
-      }).then((r) => r.json());
+      const res1 = await callMcp(req1);
 
       if (!res1.result?.data?.products || res1.result.data.products.length === 0) {
         updateStep(0, { status: "error", responsePayload: res1 });
@@ -115,11 +125,7 @@ export default function AIBuyerDemoPage() {
         method: "tools/call",
         params: { name: "create_cart", arguments: {} },
       };
-      const res2Cart = await fetch("/api/mcp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(req2Cart),
-      }).then((r) => r.json());
+      const res2Cart = await callMcp(req2Cart);
 
       const cartId = res2Cart.result.data.cartId;
 
@@ -134,11 +140,7 @@ export default function AIBuyerDemoPage() {
       };
       updateStep(1, { requestPayload: { createCart: req2Cart, addToCart: req2Add } });
 
-      const res2Add = await fetch("/api/mcp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(req2Add),
-      }).then((r) => r.json());
+      const res2Add = await callMcp(req2Add);
 
       updateStep(1, { status: "success", responsePayload: res2Add.result.data });
       await new Promise((r) => setTimeout(r, 600));
